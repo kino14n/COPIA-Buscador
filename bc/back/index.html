@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <title>Buscador – Solo Búsqueda por Código</title>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-between p-4 sm:p-6">
+  <div class="w-full max-w-3xl bg-white rounded-2xl shadow-lg overflow-hidden">
+
+    <!-- ===============================
+         ENCABEZADO GRÁFICO Y TEXTO INFORMATIVO
+         =============================== -->
+    <div class="px-6 pt-6 pb-4 text-center">
+      <img src="Logo-Kino-KB.png"
+           alt="Logo Kino Company"
+           class="mx-auto h-20 sm:h-24 mb-6" />
+
+      <p class="text-gray-800 text-base sm:text-lg mb-3 font-medium">
+        Estimados clientes y autoridades competentes:
+      </p>
+      <p class="text-gray-700 text-sm sm:text-base mb-4 leading-relaxed italic">
+        Hemos desarrollado esta aplicación para facilitar la consulta de las declaraciones de importación de nuestros productos.
+      </p>
+      <p class="text-gray-800 text-base sm:text-lg font-semibold mb-1">
+        Modo de uso:
+      </p>
+      <p class="text-gray-700 text-sm sm:text-base mb-1 leading-relaxed">
+        Busque el código del producto en el empaque, tablero o en la tapa del reloj.
+      </p>
+      <p class="text-gray-700 text-sm sm:text-base mb-1 leading-relaxed">
+        Ingrese el código del producto en <span class="font-bold uppercase bg-yellow-100 px-1">MAYÚSCULAS</span>.
+      </p>
+      <p class="text-gray-700 text-sm sm:text-base mb-1 leading-relaxed">
+        La aplicación arrojará los documentos asociados a dicho código.
+      </p>
+      <p class="text-gray-700 text-sm sm:text-base leading-relaxed">
+        Haga clic en <span class="text-red-600 font-semibold">“VER PDF”</span> para visualizar, compartir o imprimir el documento.
+      </p>
+    </div>
+
+    <!-- ÚNICA SECCIÓN: Búsqueda por Código -->
+    <div class="border-t">
+      <div class="p-6 sm:p-8">
+        <h2 class="text-2xl sm:text-3xl font-semibold mb-4">Búsqueda por Código</h2>
+        <div class="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-4">
+          <input
+            id="codeInput"
+            type="text"
+            placeholder="Código a buscar"
+            class="w-full sm:flex-1 border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-red-300"
+          />
+          <button
+            id="btnCodeSearch"
+            class="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg transition text-center"
+          >
+            Buscar
+          </button>
+          <button
+            id="btnCodeClear"
+            class="w-full sm:w-auto bg-gray-300 hover:bg-gray-400 text-gray-800 px-6 py-2 rounded-lg transition text-center"
+          >
+            Limpiar
+          </button>
+        </div>
+        <div id="code-alert" class="mb-4 text-red-600 font-medium"></div>
+        <div id="results-code" class="space-y-4"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- PIE DE PÁGINA + BOTÓN AVISO LEGAL -->
+  <footer class="w-full max-w-3xl mt-6 text-center text-gray-600 text-sm">
+    <p class="mb-1">KINO COMPANY S.A.S importador directo de relojería y otros productos.</p>
+    <p class="mb-1">Estamos ubicados en Medellín – Bogotá – Panamá.</p>
+    <p class="mb-1">
+      Línea de Atención:
+      <a href="https://wa.me/573185640716" target="_blank" class="text-red-600 font-medium hover:underline">
+        +57 318 5640716
+      </a>
+    </p>
+    <p>
+      <a href="https://kinocompanysas.kyte.site/es" target="_blank" class="text-red-600 hover:underline">
+        https://kinocompanysas.kyte.site/es
+      </a>
+    </p>
+    <div class="mt-4">
+      <button onclick="toggleLegalModal()" class="text-red-600 hover:underline font-medium">
+        Aviso Legal
+      </button>
+    </div>
+  </footer>
+
+  <!-- MODAL AVISO LEGAL -->
+  <div id="legalModal" class="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center hidden">
+    <div class="bg-white max-w-md w-full p-6 rounded-xl shadow-lg relative">
+      <button onclick="toggleLegalModal()" class="absolute top-2 right-3 text-gray-500 hover:text-red-600 text-xl">&times;</button>
+      <h2 class="text-lg font-bold text-gray-800 mb-3">Aviso Legal</h2>
+      <p class="text-sm text-gray-700 leading-relaxed">
+        Los documentos disponibles en esta plataforma son propiedad exclusiva de <strong>KINO COMPANY S.A.S</strong>. Están destinados únicamente al uso de sus clientes y de las autoridades competentes que los requieran.<br><br>
+        Cualquier uso indebido, reproducción no autorizada o distribución de este material será considerado una infracción legal y podrá ser sancionado conforme a la legislación vigente.
+      </p>
+    </div>
+  </div>
+
+  <!-- SCRIPT FUNCIONALIDAD -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const api = '../api.php';
+      let fullList = [];
+
+      fetch(`${api}?action=list&page=1&per_page=0`)
+        .then(r => r.json())
+        .then(js => {
+          fullList = js.data || [];
+        })
+        .catch(() => {
+          document.getElementById('code-alert').innerText = 'Error de conexión al servidor.';
+        });
+
+      document.getElementById('btnCodeSearch').onclick = () => {
+        const code = document.getElementById('codeInput').value.trim();
+        const alertBox = document.getElementById('code-alert');
+        const results = document.getElementById('results-code');
+
+        alertBox.innerText = '';
+        results.innerHTML = '';
+
+        if (!code) return;
+
+        const matched = fullList.filter(d => d.codes.includes(code));
+
+        if (!matched.length) {
+          alertBox.innerText = `No hay documentos con “${code}”.`;
+          return;
+        }
+
+        results.innerHTML = matched.map(d => `
+          <div class="border rounded-lg p-4 bg-white shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:justify-between items-start sm:items-center gap-3 sm:gap-0">
+              <div class="flex-1 min-w-0">
+                <h3 class="font-semibold text-lg truncate">${d.name}</h3>
+                <p class="text-sm text-gray-600 mt-1">${d.date}</p>
+                <p class="text-xs text-gray-500 italic mt-0.5 truncate">${d.path}</p>
+                <a href="../uploads/${d.path}" target="_blank" class="text-red-600 hover:underline mt-1 inline-block font-semibold">
+                  Ver PDF
+                </a>
+              </div>
+            </div>
+          </div>
+        `).join('');
+      };
+
+      document.getElementById('btnCodeClear').onclick = () => {
+        document.getElementById('codeInput').value = '';
+        document.getElementById('code-alert').innerText = '';
+        document.getElementById('results-code').innerHTML = '';
+      };
+    });
+
+    function toggleLegalModal() {
+      const modal = document.getElementById('legalModal');
+      modal.classList.toggle('hidden');
+    }
+  </script>
+</body>
+</html>

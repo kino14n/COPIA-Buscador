@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+
+  <script>
+    // Interceptamos console.error
+    (function(){
+      const orig = console.error;
+      console.error = function(...args) {
+        // Si es nuestro "Expected number" de SVG, lo ignoramos
+        if (args[0] && typeof args[0] === 'string' && args[0].includes('Expected number')) {
+          return;
+        }
+        orig.apply(console, args);
+      };
+      window.onerror = function() { return true; };
+    })();
+  </script>
+
+  <meta charset="UTF-8" />
+  <meta name="google" content="notranslate">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <title>Buscador de Documentos</title>
+  <style>
+    .overlay { position: fixed; top:0; left:0; width:100vw; height:100vh; background: rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:9999; }
+    .overlay.hidden { display:none; }
+    .modal { background:white; border-radius:0.5rem; max-width:320px; width:90%; padding:1.5rem; box-shadow:0 2px 10px rgba(0,0,0,0.3); text-align:center; }
+    .modal input, .modal button { font-size:1rem; }
+    .modal input { width:100%; padding:0.5rem; margin-top:0.5rem; border:1px solid #ccc; border-radius:0.25rem; }
+    .modal button { margin-top:1rem; }
+    #toast-container { position:fixed; top:1rem; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:0.5rem; z-index:10000; }
+    .toast { min-width:240px; max-width:480px; background-color:#2563EB; color:white; padding:1rem 1.5rem; border-radius:0.375rem; box-shadow:0 2px 6px rgba(0,0,0,0.2); display:flex; align-items:center; justify-content:space-between; font-size:1.125rem; }
+    .toast button { background:transparent; border:none; color:white; font-weight:bold; margin-left:1rem; cursor:pointer; font-size:1.125rem; }
+    #confirmOverlay, #deleteOverlay { position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:10001; }
+    #confirmOverlay.hidden, #deleteOverlay.hidden { display:none; }
+    .modal.confirm, .modal.deleteKey { background:white; border-radius:0.5rem; padding:1.5rem; max-width:320px; width:90%; box-shadow:0 2px 10px rgba(0,0,0,0.3); text-align:center; }
+    .modal.confirm p { margin-bottom:1rem; }
+    .modal.confirm button, .modal.deleteKey button { margin:0.5rem; padding:0.5rem 1rem; font-size:1rem; border-radius:0.25rem; }
+    .tab.active { border-bottom:2px solid #F87171; color:#F87171; }
+    .button-group { display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
+    :root {
+      --btn-padding: 0.5rem 1rem;
+      --btn-radius: 0.375rem;
+      --btn-font-size: 1rem;
+      --btn-transition: background-color .2s;
+      --color-primary: #F87171;
+      --color-primary-hover: #DC2626;
+      --color-secondary: #D1D5DB;
+      --color-secondary-hover: #9CA3AF;
+      --color-dark: #374151;
+      --color-dark-hover: #1F2937;
+      --color-warning: #8B5E5E;
+      --color-warning-hover: #6B4542;
+      --color-on-light: #1F2937;
+      --color-on-dark: #FFFFFF;
+    }
+    .btn { padding: var(--btn-padding); border-radius: var(--btn-radius); font-size: var(--btn-font-size); transition: var(--btn-transition); border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+    .btn--primary { background: var(--color-primary); color: var(--color-on-dark); }
+    .btn--primary:hover { background: var(--color-primary-hover); }
+    .btn--secondary { background: var(--color-secondary); color: var(--color-on-light); }
+    .btn--secondary:hover { background: var(--color-secondary-hover); }
+    .btn--dark { background: var(--color-dark); color: var(--color-on-dark); }
+    .btn--dark:hover { background: var(--color-dark-hover); }
+    .btn--warning { background: var(--color-warning); color: var(--color-on-dark); }
+    .btn--warning:hover { background: var(--color-warning-hover); }
+    .btn--full { width: 100%; }
+    .btn--flex1 { flex: 1; }
+    @media (max-width: 1024px) {
+      .max-w-4xl { max-width: 90%; }
+    }
+    @media (max-width: 768px) {
+      #tabs { flex-direction: column; }
+      .flex.gap-4 { flex-direction: column; }
+      .p-6 { padding: 1rem; }
+    }
+    @media (max-width: 480px) {
+      h1.text-2xl { font-size: 1.5rem; }
+      .modal { max-width: 95%; padding: 1rem; }
+      .btn { padding: 0.5rem; font-size: 0.875rem; }
+      textarea, input { font-size: 0.875rem; }
+    }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-start justify-center p-6">
+
+  <!-- Login Modal -->
+  <div id="loginOverlay" class="overlay">
+    <div class="modal">
+      <h2 class="text-xl font-semibold">Acceso Restringido</h2>
+      <p class="mt-2 text-gray-700">Ingrese su número de acceso:</p>
+      <input id="accessInput" type="password" placeholder="Número de acceso" />
+      <button id="submitAccess" class="btn btn--primary btn--full">Enviar</button>
+      <p id="errorMsg" class="mt-2 text-red-500 hidden">Número incorrecto. Intente de nuevo.</p>
+    </div>
+  </div>
+
+  <!-- Confirm Modal -->
+  <div id="confirmOverlay" class="overlay hidden">
+    <div id="confirmBox" class="modal confirm">
+      <p id="confirmMsg">¿Confirmar acción?</p>
+      <button id="confirmOk" class="btn btn--primary">Aceptar</button>
+      <button id="confirmCancel" class="btn btn--secondary">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- Delete Key Modal -->
+  <div id="deleteOverlay" class="overlay hidden">
+    <div class="modal deleteKey">
+      <h2 class="text-xl font-semibold">Clave de Eliminación</h2>
+      <p class="mt-2 text-gray-700">Ingrese la clave para eliminar:</p>
+      <input id="deleteKeyInput" type="password" placeholder="Clave de borrado" class="mt-2 w-full border rounded px-3 py-2" />
+      <p id="deleteKeyError" class="mt-2 text-red-500 hidden">Clave incorrecta.</p>
+      <button id="deleteKeyOk" class="btn btn--primary btn--full">Enviar</button>
+      <button id="deleteKeyCancel" class="btn btn--secondary btn--full">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toast-container"></div>
+
+  <!-- Main Content -->
+  <div id="mainContent" class="w-full max-w-4xl bg-white rounded-2xl shadow-lg hidden">
+    <div class="bg-white border-b">
+      <h1 class="text-2xl font-bold text-center py-4">KINO COMPANY SAS V1</h1>
+    </div>
+    <nav class="border-b bg-white shadow-sm">
+      <ul id="tabs" class="flex">
+        <li class="tab flex-1 text-center cursor-pointer px-6 py-4 active" data-tab="tab-search">Buscar</li>
+        <li class="tab flex-1 text-center cursor-pointer px-6 py-4" data-tab="tab-upload">Subir</li>
+        <li class="tab flex-1 text-center cursor-pointer px-6 py-4" data-tab="tab-list">Consultar</li>
+        <li class="tab flex-1 text-center cursor-pointer px-6 py-4" data-tab="tab-code">Búsqueda por Código</li>
+      </ul>
+    </nav>
+    <div class="p-6 space-y-6">
+
+      <!-- TAB SEARCH -->
+      <div id="tab-search" class="tab-content">
+        <h2 class="text-xl font-semibold mb-4">Búsqueda Inteligente</h2>
+        <textarea id="searchInput" rows="6" class="w-full border rounded px-3 py-2 text-lg mb-4" placeholder="Pega aquí tus códigos o bloque de texto…"></textarea>
+        <div class="flex gap-4 mb-4">
+          <button onclick="doSearch()" class="btn btn--primary btn--flex1 text-lg">Buscar</button>
+          <button onclick="clearSearch()" class="btn btn--secondary btn--flex1 text-lg">Limpiar</button>
+        </div>
+        <div id="search-alert" class="text-red-600 font-medium text-lg mb-4"></div>
+        <div id="results-search" class="space-y-4"></div>
+      </div>
+
+      <!-- TAB UPLOAD -->
+      <div id="tab-upload" class="tab-content hidden">
+        <h2 class="text-xl font-semibold mb-4">Subir / Editar Documento</h2>
+        <form id="form-upload" enctype="multipart/form-data" class="space-y-4">
+          <input id="docId" type="hidden" name="id" />
+          <div>
+            <label class="block mb-1 text-lg">Nombre</label>
+            <input id="name" name="name" type="text" required class="w-full border rounded px-3 py-2 text-lg"/>
+          </div>
+          <div>
+            <label class="block mb-1 text-lg">Fecha</label>
+            <input id="date" name="date" type="date" required class="w-full border rounded px-3 py-2 text-lg"/>
+          </div>
+          <div>
+            <label class="block mb-1 text-lg">PDF o Documento</label>
+            <input id="file" name="file" type="file" accept="application/pdf,image/*" class="w-full text-lg"/>
+            <p id="uploadWarning" class="mt-1 text-red-600 text-sm hidden">
+              El archivo excede los 10 MB. Por favor, sube uno menor.
+            </p>
+          </div>
+          <div>
+            <label class="block mb-1 text-lg">Códigos</label>
+            <textarea id="codes" name="codes" rows="4" class="w-full border rounded px-3 py-2 text-lg"></textarea>
+          </div>
+          <button type="submit" class="btn btn--primary btn--full text-lg">Guardar</button>
+        </form>
+      </div>
+
+      <!-- TAB LIST -->
+      <div id="tab-list" class="tab-content hidden">
+        <h2 class="text-xl font-semibold mb-4">Consultar Documentos</h2>
+        <div class="flex gap-4 mb-4">
+          <input id="consultFilterInput" type="text" class="flex-1 border rounded px-3 py-2 text-lg" placeholder="Filtrar por nombre o PDF" oninput="doConsultFilter()" />
+          <button onclick="clearConsultFilter()" class="btn btn--secondary text-lg">Limpiar</button>
+          <button onclick="downloadCsv()" class="btn btn--primary text-lg">Descargar CSV</button>
+          <button onclick="downloadPdfs()" class="btn btn--dark text-lg">Descargar PDFs</button>
+        </div>
+        <div id="results-list" class="space-y-4"></div>
+      </div>
+
+      <!-- TAB CODE -->
+      <div id="tab-code" class="tab-content hidden">
+        <h2 class="text-xl font-semibold mb-4">Búsqueda por Código</h2>
+        <div class="relative mb-4">
+          <input id="codeInput" type="text" class="w-full border rounded px-3 py-2 text-lg" placeholder="Código en MAYÚSCULAS (ej: ABC123)" autocomplete="off" />
+          <div id="suggestions" class="absolute top-full left-0 right-0 bg-white border rounded-b px-2 shadow max-h-48 overflow-auto hidden z-20"></div>
+        </div>
+        <button onclick="doCodeSearch()" class="btn btn--primary btn--full mb-4 text-lg">Buscar por Código</button>
+        <div id="results-code" class="space-y-4"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const api = './api.php';
+    const ACCESS_KEY = '565';
+    const DELETION_KEY = '0101';
+    let fullList = [];
+    let pendingDeleteId = null;
+
+    // POLLING CONTROL ROBUSTO
+    let intervalId = null;
+    function startPolling(refreshFn) {
+      stopPolling();
+      intervalId = setInterval(refreshFn, 60000);
+    }
+    function stopPolling() {
+      if (intervalId !== null) clearInterval(intervalId);
+      intervalId = null;
+    }
+
+    function clearSearch() {
+      document.getElementById('searchInput').value = '';
+      document.getElementById('results-search').innerHTML = '';
+      document.getElementById('search-alert').innerText = '';
+    }
+
+    document.getElementById('submitAccess').onclick = () => {
+      const v = document.getElementById('accessInput').value;
+      if (v === ACCESS_KEY) {
+        document.getElementById('loginOverlay').classList.add('hidden');
+        document.getElementById('mainContent').classList.remove('hidden');
+        initApp();
+      } else {
+        document.getElementById('errorMsg').classList.remove('hidden');
+      }
+    };
+    document.getElementById('accessInput').addEventListener('keypress', e => { if (e.key === 'Enter') document.getElementById('submitAccess').click(); });
+
+    function toast(msg, d = 3000) {
+      const c = document.getElementById('toast-container');
+      const e = document.createElement('div'); e.className = 'toast';
+      e.innerHTML = `<span>${msg}</span><button onclick="this.parentElement.remove()">×</button>`;
+      c.appendChild(e);
+      setTimeout(() => e.remove(), d);
+    }
+
+    function confirmDialog(msg) {
+      return new Promise(resolve => {
+        const ov = document.getElementById('confirmOverlay');
+        document.getElementById('confirmMsg').textContent = msg;
+        ov.classList.remove('hidden');
+        document.getElementById('confirmOk').onclick = () => { ov.classList.add('hidden'); resolve(true); };
+        document.getElementById('confirmCancel').onclick = () => { ov.classList.add('hidden'); resolve(false); };
+      });
+    }
+
+    function initApp() {
+      const deleteOv = document.getElementById('deleteOverlay');
+      const dkInput = document.getElementById('deleteKeyInput');
+      const dkErr = document.getElementById('deleteKeyError');
+
+      document.getElementById('deleteKeyOk').onclick = async () => {
+        if (dkInput.value !== DELETION_KEY) {
+          dkErr.classList.remove('hidden'); dkInput.value = ''; dkInput.focus(); return;
+        }
+        deleteOv.classList.add('hidden'); dkErr.classList.add('hidden'); dkInput.value = '';
+        const ok = await confirmDialog('¿Eliminar este documento?'); if (!ok) return;
+        await deleteDoc(pendingDeleteId);
+      };
+      document.getElementById('deleteKeyCancel').onclick = () => { deleteOv.classList.add('hidden'); dkErr.classList.add('hidden'); dkInput.value = ''; };
+
+      async function refresh() {
+        const res = await fetch(`${api}?action=list&page=1&per_page=0`);
+        const js  = await res.json();
+        fullList = js.data || [];
+
+        if (document.querySelector('.tab.active').dataset.tab === 'tab-list') {
+          const term = document.getElementById('consultFilterInput').value.trim().toLowerCase();
+          if (term) {
+            doConsultFilter();
+          } else {
+            render(fullList, 'results-list', false);
+          }
+        }
+      }
+      refresh();
+      startPolling(refresh);
+
+     document.querySelectorAll('.tab').forEach(tab => tab.onclick = () => {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+  tab.classList.add('active');
+  document.getElementById(tab.dataset.tab).classList.remove('hidden');
+  if (tab.dataset.tab === 'tab-list') {
+    refresh();             // Refresca al interactuar
+    startPolling(refresh); // Activa polling auto cada 30s SOLO aquí
+  } else {
+    stopPolling();         // Detén polling al salir de la pestaña Consulta
+  }
+  if (tab.dataset.tab === 'tab-search') clearSearch();
+  if (tab.dataset.tab === 'tab-code') clearCode();
+});
+
+      document.querySelector('.tab.active').click();
+
+      function render(items, cid, hideActions) {
+        const ct = document.getElementById(cid);
+        if (!items || !items.length) {
+          ct.innerHTML = '<p class="text-gray-500">No hay documentos.</p>';
+          return;
+        }
+        ct.innerHTML = items.map(d => `
+          <div class="border rounded p-4 bg-gray-50">
+            <div class="flex justify-between">
+              <div>
+                <h3 class="font-semibold text-lg">${d.name}</h3>
+                <p class="text-gray-600">${d.date}</p>
+                <p class="text-gray-600 text-sm">Archivo PDF: ${d.path}</p>
+                <a href="uploads/${d.path}" target="_blank" class="text-indigo-600 underline">Ver PDF</a>
+              </div>
+              <div class="button-group text-right">
+                ${!hideActions ? `
+                  <button onclick="editDoc(${d.id})" class="btn btn--warning px-2 py-1 text-lg">Editar</button>
+                  <button onclick="pendingDeleteId=${d.id}; document.getElementById('deleteOverlay').classList.remove('hidden'); document.getElementById('deleteKeyInput').focus();" class="btn btn--primary px-2 py-1 text-lg">Eliminar</button>
+                ` : ''}
+                <button data-id="${d.id}" onclick="toggleCodes(this)" class="btn btn--secondary px-2 py-1 text-lg">Ver Códigos</button>
+              </div>
+            </div>
+            <pre id="codes${d.id}" class="mt-2 p-2 bg-white rounded hidden">${(d.codes||[]).join('\n')}</pre>
+          </div>
+        `).join('');
+      }
+
+      window.clearSearch = () => {
+        document.getElementById('searchInput').value = '';
+        document.getElementById('results-search').innerHTML = '';
+        document.getElementById('search-alert').innerText = '';
+      };
+      window.doSearch = async () => {
+        const raw = document.getElementById('searchInput').value.trim(); if (!raw) return;
+        const codes = [...new Set(raw.split(/\r?\n/).map(l => l.trim().split(/\s+/)[0]).filter(Boolean))];
+        const fd = new FormData(); fd.append('action', 'search'); fd.append('codes', codes.join('\n'));
+        const res = await fetch(api, { method: 'POST', body: fd }); const data = await res.json();
+        const found = new Set(data.flatMap(d => d.codes||[]));
+        const missing = codes.filter(c => !found.has(c));
+        if (missing.length) document.getElementById('search-alert').innerText = 'No encontrados: ' + missing.join(', ');
+        document.getElementById('results-search').innerHTML = '';
+        render(data, 'results-search', true);
+      };
+
+      document.getElementById('form-upload').onsubmit = async e => {
+  e.preventDefault();
+  const fileInput = document.getElementById('file');
+  const warning   = document.getElementById('uploadWarning');
+  const f         = e.target;
+  const file      = fileInput.files[0];
+
+  if (file && file.size > 10 * 1024 * 1024) {
+    warning.classList.remove('hidden');
+    return;
+  }
+  warning.classList.add('hidden');
+
+  // --- ORDENAR LOS CÓDIGOS ANTES DE ENVIAR (alfanumérico) ---
+  let codesArr = f.codes.value
+    .split(/\r?\n/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  f.codes.value = codesArr.join('\n');
+  // ----------------------------------------------------------
+
+  const act = f.id.value ? 'edit' : 'upload';
+  const fd  = new FormData(f);
+  fd.append('action', act);
+
+  const res = await fetch(api, { method: 'POST', body: fd });
+  const js  = await res.json();
+  toast(js.message || js.error);
+  f.reset();
+};
+
+
+      window.clearConsultFilter = () => {
+        document.getElementById('consultFilterInput').value = '';
+        document.getElementById('results-list').innerHTML = '';
+      };
+      window.doConsultFilter = () => {
+        const term = document.getElementById('consultFilterInput').value.trim().toLowerCase();
+        render(fullList.filter(d => d.name.toLowerCase().includes(term) || d.path.toLowerCase().includes(term)), 'results-list', false);
+      };
+      window.downloadCsv = () => { let csv = 'Código,Documento\n'; fullList.forEach(d => d.codes.forEach(c => csv += `${c},${d.name}\n`)); const blob = new Blob([csv], { type:'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'documentos.csv'; a.click(); URL.revokeObjectURL(url); };
+      window.downloadPdfs = () => { window.location = `${api}?action=download_pdfs`; };
+
+      // *** Cambios aquí para mayúsculas/minúsculas ***
+      const codeInput = document.getElementById('codeInput'), suggest = document.getElementById('suggestions'); let timeoutId;
+      codeInput.addEventListener('input', () => {
+        clearTimeout(timeoutId);
+        const term = codeInput.value.trim(); // <--- sin .toUpperCase()
+        if (!term) return suggest.classList.add('hidden');
+        timeoutId = setTimeout(async () => {
+          const r = await fetch(`${api}?action=suggest&term=${encodeURIComponent(term)}`);
+          const arr = await r.json();
+          if (!arr.length) return suggest.classList.add('hidden');
+          suggest.innerHTML = arr.map(c => `<div class="py-1 px-2 hover:bg-gray-100 cursor-pointer" data-code="${c}">${c}</div>`).join('');
+          suggest.classList.remove('hidden');
+        }, 200);
+      });
+      suggest.addEventListener('click', e => { const c = e.target.dataset.code; if (!c) return; codeInput.value = c; suggest.classList.add('hidden'); doCodeSearch(); });
+      codeInput.addEventListener('blur', () => setTimeout(() => suggest.classList.add('hidden'), 100));
+      window.clearCode = () => { document.getElementById('results-code').innerHTML = ''; };
+      window.doCodeSearch = async () => {
+        const code = codeInput.value.trim();
+        if (!code) return;
+        const fd = new FormData();
+        fd.append('action', 'search_by_code');
+        fd.append('code', code);
+        const res = await fetch(api, { method: 'POST', body: fd });
+        const data = await res.json();
+
+        document.getElementById('results-code').innerHTML = '';
+        if (!data.length) {
+          document.getElementById('results-code').innerHTML = '<p class="text-gray-500">No hay documentos.</p>';
+        } else {
+          render(data, 'results-code', true);
+        }
+      };
+
+      window.editDoc = id => {
+        const d = fullList.find(x => x.id===id);
+        if (!d) return;
+        document.querySelector('[data-tab="tab-upload"]').click();
+        document.getElementById('docId').value = d.id;
+        document.getElementById('name').value = d.name;
+        document.getElementById('date').value = d.date;
+        document.getElementById('codes').value = d.codes.join('\n');
+      };
+      window.deleteDoc = async id => {
+        const res = await fetch(`${api}?action=delete&id=${id}`);
+        const js = await res.json();
+        toast(js.message||js.error);
+        document.querySelector('.tab.active').click();
+      };
+
+      // SOLO CAMBIO AQUÍ: polling pause/reanudar y robusto
+      window.toggleCodes = btn => {
+        const id = btn.dataset.id;
+        const pre = document.getElementById(`codes${id}`);
+        if (pre.classList.toggle('hidden')) {
+          btn.textContent = 'Ver Códigos';
+          startPolling(refresh);
+        } else {
+          btn.textContent = 'Ocultar Códigos';
+          stopPolling();
+        }
+      };
+    }
+  </script>
+</body>
+</html>

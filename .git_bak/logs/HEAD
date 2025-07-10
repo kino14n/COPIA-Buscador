@@ -1,0 +1,15 @@
+0000000000000000000000000000000000000000 4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd Wil <disenokinocomp@gmail.com> 1748034052 -0500	commit (initial): Añadir estructura completa de la app buscador-docs
+4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd 0000000000000000000000000000000000000000 Wil <disenokinocomp@gmail.com> 1748034060 -0500	Branch: renamed refs/heads/main to refs/heads/main
+4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd 4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd Wil <disenokinocomp@gmail.com> 1748034060 -0500	Branch: renamed refs/heads/main to refs/heads/main
+4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd 4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd Wil <disenokinocomp@gmail.com> 1748035273 -0500	checkout: moving from main to main
+4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd 4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd Wil <disenokinocomp@gmail.com> 1748035274 -0500	checkout: moving from main to version-uno
+4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd 4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd Wil <disenokinocomp@gmail.com> 1748037109 -0500	checkout: moving from version-uno to main
+4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd 4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd Wil <disenokinocomp@gmail.com> 1748037111 -0500	checkout: moving from main to version-2
+4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd 4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd Wil <disenokinocomp@gmail.com> 1748037743 -0500	checkout: moving from version-2 to main
+4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd 4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd Wil <disenokinocomp@gmail.com> 1748037745 -0500	checkout: moving from main to version-3
+4bc98e735151fbd5c86805cbf3bee44bf8d6e4dd 70c5dc82da509614ff0d47f33eab8be2d6655954 Wil <disenokinocomp@gmail.com> 1748040139 -0500	commit: Tu mensaje de cambios
+70c5dc82da509614ff0d47f33eab8be2d6655954 0604450a7d16d3c5cea2b048856fcb84ef009b0c Wil <disenokinocomp@gmail.com> 1748040320 -0500	commit: Tu mensaje de cambios
+0604450a7d16d3c5cea2b048856fcb84ef009b0c 0604450a7d16d3c5cea2b048856fcb84ef009b0c kino14n <disenokinocomp@gmail.com> 1752167734 -0500	reset: moving to HEAD
+0604450a7d16d3c5cea2b048856fcb84ef009b0c b3dd3da5e34351eafed710eddb87cbbee05809da kino14n <disenokinocomp@gmail.com> 1752167748 -0500	commit: Subida inicial completa
+b3dd3da5e34351eafed710eddb87cbbee05809da 0000000000000000000000000000000000000000 kino14n <disenokinocomp@gmail.com> 1752167754 -0500	Branch: renamed refs/heads/version-3 to refs/heads/main
+0000000000000000000000000000000000000000 b3dd3da5e34351eafed710eddb87cbbee05809da kino14n <disenokinocomp@gmail.com> 1752167754 -0500	Branch: renamed refs/heads/version-3 to refs/heads/main
