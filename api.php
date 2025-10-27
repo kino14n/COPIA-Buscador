@@ -9,18 +9,18 @@ function json_exit($payload) {
     exit;
 }
 
-$cliente = $_GET['c'] ?? $_POST['c'] ?? ($_SESSION['cliente'] ?? null);
+$cliente = $_GET['c'] ?? ($_SESSION['cliente'] ?? null);
 if ($cliente === null) {
     json_exit(['error' => 'Cliente no especificado']);
 }
 
-$cliente = trim($cliente);
-if ($cliente === '' || !preg_match('/^[A-Za-z0-9_]+$/', $cliente)) {
+$cliente = preg_replace('/[^a-z0-9_]/i', '', (string)$cliente);
+if ($cliente === '') {
     json_exit(['error' => 'Código de cliente inválido']);
 }
 
 try {
-    $stmt = $db->prepare('SELECT codigo, activo FROM _control_clientes WHERE codigo = ? LIMIT 1');
+    $stmt = $db->prepare('SELECT codigo, activo FROM _control_clientes WHERE codigo = ? AND activo = 1 LIMIT 1');
     $stmt->execute([$cliente]);
     $clienteRow = $stmt->fetch(PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
@@ -28,17 +28,16 @@ try {
 }
 
 if (!$clienteRow) {
-    json_exit(['error' => 'Cliente no encontrado']);
-}
-if (!(int)$clienteRow['activo']) {
-    json_exit(['error' => 'Cliente inactivo']);
+    json_exit(['error' => 'Cliente no encontrado o inactivo']);
 }
 
 $_SESSION['cliente'] = $clienteRow['codigo'];
 $cliente = $clienteRow['codigo'];
 
-$tabla_docs = sprintf('`%s_documents`', $cliente);
-$tabla_codes = sprintf('`%s_codes`', $cliente);
+$tabla_docs = "{$cliente}_documents";
+$tabla_codes = "{$cliente}_codes";
+$tabla_docs_sql = "`{$tabla_docs}`";
+$tabla_codes_sql = "`{$tabla_codes}`";
 
 function ensure_upload_dir($cliente) {
     $dir = __DIR__ . '/uploads/' . $cliente;
@@ -73,7 +72,7 @@ try {
             if ($term === '') {
                 json_exit([]);
             }
-            $stmt = $db->prepare("SELECT DISTINCT code FROM {$tabla_codes} WHERE code LIKE ? ORDER BY code ASC LIMIT 10");
+            $stmt = $db->prepare("SELECT DISTINCT code FROM {$tabla_codes_sql} WHERE code LIKE ? ORDER BY code ASC LIMIT 10");
             $stmt->execute([$term . '%']);
             json_exit($stmt->fetchAll(PDO::FETCH_COLUMN));
 
@@ -92,12 +91,12 @@ try {
             }
             $path = $cliente . '/' . $filename;
 
-            $stmt = $db->prepare("INSERT INTO {$tabla_docs} (name,date,path) VALUES (?,?,?)");
+            $stmt = $db->prepare("INSERT INTO {$tabla_docs_sql} (name,date,path) VALUES (?,?,?)");
             $stmt->execute([$name, $date, $path]);
             $docId = $db->lastInsertId();
 
             if ($codes) {
-                $ins = $db->prepare("INSERT INTO {$tabla_codes} (document_id,code) VALUES (?,?)");
+                $ins = $db->prepare("INSERT INTO {$tabla_codes_sql} (document_id,code) VALUES (?,?)");
                 foreach (array_unique($codes) as $c) {
                     $ins->execute([$docId, $c]);
                 }
@@ -107,10 +106,10 @@ try {
         case 'list':
             $page    = max(1, (int)($_GET['page'] ?? 1));
             $perPage = isset($_GET['per_page']) ? (int)$_GET['per_page'] : 50;
-            $total   = (int)$db->query("SELECT COUNT(*) FROM {$tabla_docs}")->fetchColumn();
+            $total   = (int)$db->query("SELECT COUNT(*) FROM {$tabla_docs_sql}")->fetchColumn();
 
             if ($perPage === 0) {
-                $stmt = $db->query("SELECT d.id,d.name,d.date,d.path, GROUP_CONCAT(c.code SEPARATOR '\n') AS codes FROM {$tabla_docs} d LEFT JOIN {$tabla_codes} c ON d.id=c.document_id GROUP BY d.id ORDER BY d.date DESC");
+                $stmt = $db->query("SELECT d.id,d.name,d.date,d.path, GROUP_CONCAT(c.code SEPARATOR '\n') AS codes FROM {$tabla_docs_sql} d LEFT JOIN {$tabla_codes_sql} c ON d.id=c.document_id GROUP BY d.id ORDER BY d.date DESC");
                 $rows = $stmt->fetchAll();
                 $lastPage = 1;
                 $page = 1;
@@ -119,7 +118,7 @@ try {
                 $offset  = ($page - 1) * $perPage;
                 $lastPage = (int)ceil($total / $perPage);
 
-                $stmt = $db->prepare("SELECT d.id,d.name,d.date,d.path, GROUP_CONCAT(c.code SEPARATOR '\n') AS codes FROM {$tabla_docs} d LEFT JOIN {$tabla_codes} c ON d.id=c.document_id GROUP BY d.id ORDER BY d.date DESC LIMIT :l OFFSET :o");
+                $stmt = $db->prepare("SELECT d.id,d.name,d.date,d.path, GROUP_CONCAT(c.code SEPARATOR '\n') AS codes FROM {$tabla_docs_sql} d LEFT JOIN {$tabla_codes_sql} c ON d.id=c.document_id GROUP BY d.id ORDER BY d.date DESC LIMIT :l OFFSET :o");
                 $stmt->bindValue(':l', $perPage, PDO::PARAM_INT);
                 $stmt->bindValue(':o', $offset, PDO::PARAM_INT);
                 $stmt->execute();
@@ -150,7 +149,7 @@ try {
                 json_exit([]);
             }
             $cond = implode(' OR ', array_fill(0, count($codes), 'UPPER(c.code) = UPPER(?)'));
-            $stmt = $db->prepare("SELECT d.id,d.name,d.date,d.path,c.code FROM {$tabla_docs} d JOIN {$tabla_codes} c ON d.id=c.document_id WHERE {$cond}");
+            $stmt = $db->prepare("SELECT d.id,d.name,d.date,d.path,c.code FROM {$tabla_docs_sql} d JOIN {$tabla_codes_sql} c ON d.id=c.document_id WHERE {$cond}");
             $stmt->execute($codes);
             $rows = $stmt->fetchAll();
 
@@ -233,7 +232,7 @@ try {
             }
 
             if (!empty($_FILES['file']['tmp_name'])) {
-                $old = $db->prepare("SELECT path FROM {$tabla_docs} WHERE id=?");
+                $old = $db->prepare("SELECT path FROM {$tabla_docs_sql} WHERE id=?");
                 $old->execute([$id]);
                 $oldPath = $old->fetchColumn();
                 if ($oldPath) {
@@ -247,14 +246,14 @@ try {
                 $target = $uploadsDir . '/' . $fn;
                 move_uploaded_file($_FILES['file']['tmp_name'], $target);
                 $path = $cliente . '/' . $fn;
-                $db->prepare("UPDATE {$tabla_docs} SET name=?,date=?,path=? WHERE id=?")->execute([$name, $date, $path, $id]);
+                $db->prepare("UPDATE {$tabla_docs_sql} SET name=?,date=?,path=? WHERE id=?")->execute([$name, $date, $path, $id]);
             } else {
-                $db->prepare("UPDATE {$tabla_docs} SET name=?,date=? WHERE id=?")->execute([$name, $date, $id]);
+                $db->prepare("UPDATE {$tabla_docs_sql} SET name=?,date=? WHERE id=?")->execute([$name, $date, $id]);
             }
 
-            $db->prepare("DELETE FROM {$tabla_codes} WHERE document_id=?")->execute([$id]);
+            $db->prepare("DELETE FROM {$tabla_codes_sql} WHERE document_id=?")->execute([$id]);
             if ($codes) {
-                $ins = $db->prepare("INSERT INTO {$tabla_codes} (document_id,code) VALUES (?,?)");
+                $ins = $db->prepare("INSERT INTO {$tabla_codes_sql} (document_id,code) VALUES (?,?)");
                 foreach (array_unique($codes) as $c) {
                     $ins->execute([$id, $c]);
                 }
@@ -266,7 +265,7 @@ try {
             if (!$id) {
                 json_exit(['error' => 'ID inválido']);
             }
-            $old = $db->prepare("SELECT path FROM {$tabla_docs} WHERE id=?");
+            $old = $db->prepare("SELECT path FROM {$tabla_docs_sql} WHERE id=?");
             $old->execute([$id]);
             $oldPath = $old->fetchColumn();
             if ($oldPath) {
@@ -275,8 +274,8 @@ try {
                     @unlink($fullOld);
                 }
             }
-            $db->prepare("DELETE FROM {$tabla_codes} WHERE document_id=?")->execute([$id]);
-            $db->prepare("DELETE FROM {$tabla_docs} WHERE id=?")->execute([$id]);
+            $db->prepare("DELETE FROM {$tabla_codes_sql} WHERE document_id=?")->execute([$id]);
+            $db->prepare("DELETE FROM {$tabla_docs_sql} WHERE id=?")->execute([$id]);
             json_exit(['message' => 'Documento eliminado']);
 
         case 'search_by_code':
@@ -284,7 +283,7 @@ try {
             if ($code === '') {
                 json_exit([]);
             }
-            $stmt = $db->prepare("SELECT d.id, d.name, d.date, d.path, GROUP_CONCAT(c2.code SEPARATOR '\n') AS codes FROM {$tabla_docs} d JOIN {$tabla_codes} c1 ON d.id = c1.document_id LEFT JOIN {$tabla_codes} c2 ON d.id = c2.document_id WHERE UPPER(c1.code) = UPPER(?) GROUP BY d.id");
+            $stmt = $db->prepare("SELECT d.id, d.name, d.date, d.path, GROUP_CONCAT(c2.code SEPARATOR '\n') AS codes FROM {$tabla_docs_sql} d JOIN {$tabla_codes_sql} c1 ON d.id = c1.document_id LEFT JOIN {$tabla_codes_sql} c2 ON d.id = c2.document_id WHERE UPPER(c1.code) = UPPER(?) GROUP BY d.id");
             $stmt->execute([$code]);
             $rows = $stmt->fetchAll();
 
