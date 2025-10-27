@@ -114,14 +114,21 @@
   <!-- SCRIPT FUNCIONALIDAD -->
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const api = '../api.php';
+      const params = new URLSearchParams(window.location.search);
+      const clientCode = params.get('c');
+      if (!clientCode) {
+        window.location.href = '../index.php';
+        return;
+      }
+      const apiBase = '../api.php';
+      const apiUrl = `${apiBase}?c=${encodeURIComponent(clientCode)}`;
       let fullList = [];
       const codeInput = document.getElementById('codeInput');
       const suggestions = document.getElementById('suggestions');
       let timeoutId;
 
       // Cargar lista completa
-      fetch(`${api}?action=list&page=1&per_page=0`)
+      fetch(`${apiUrl}&action=list&page=1&per_page=0`)
         .then(r => r.json())
         .then(js => { fullList = js.data || []; })
         .catch(() => {
@@ -135,7 +142,7 @@
         if (!term) { suggestions.style.display = 'none'; return; }
         timeoutId = setTimeout(async () => {
           try {
-            const res = await fetch(`${api}?action=suggest&term=${encodeURIComponent(term)}`);
+            const res = await fetch(`${apiUrl}&action=suggest&term=${encodeURIComponent(term)}`);
             const arr = await res.json();
             if (!arr.length) { suggestions.style.display = 'none'; return; }
             suggestions.innerHTML = arr.map(c => `<div class="px-4 py-2 cursor-pointer" data-code="${c}">${c}</div>`).join('');

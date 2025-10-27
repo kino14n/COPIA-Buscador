@@ -203,7 +203,13 @@
   </div>
 
   <script>
-    const api = './api.php';
+    const apiBase = './api.php';
+    const params = new URLSearchParams(window.location.search);
+    const clientCode = params.get('c');
+    if (!clientCode) {
+      window.location.href = 'index.php';
+    }
+    const apiUrl = `${apiBase}?c=${encodeURIComponent(clientCode)}`;
     const ACCESS_KEY = '565';
     const DELETION_KEY = '0101';
     let fullList = [];
@@ -272,7 +278,7 @@
       document.getElementById('deleteKeyCancel').onclick = () => { deleteOv.classList.add('hidden'); dkErr.classList.add('hidden'); dkInput.value = ''; };
 
       async function refresh() {
-        const res = await fetch(`${api}?action=list&page=1&per_page=0`);
+        const res = await fetch(`${apiUrl}&action=list&page=1&per_page=0`);
         const js  = await res.json();
         fullList = js.data || [];
 
@@ -342,7 +348,7 @@
         const raw = document.getElementById('searchInput').value.trim(); if (!raw) return;
         const codes = [...new Set(raw.split(/\r?\n/).map(l => l.trim().split(/\s+/)[0]).filter(Boolean))];
         const fd = new FormData(); fd.append('action', 'search'); fd.append('codes', codes.join('\n'));
-        const res = await fetch(api, { method: 'POST', body: fd }); const data = await res.json();
+        const res = await fetch(apiUrl, { method: 'POST', body: fd }); const data = await res.json();
         const found = new Set(data.flatMap(d => d.codes||[]));
         const missing = codes.filter(c => !found.has(c));
         if (missing.length) document.getElementById('search-alert').innerText = 'No encontrados: ' + missing.join(', ');
@@ -376,7 +382,7 @@
   const fd  = new FormData(f);
   fd.append('action', act);
 
-  const res = await fetch(api, { method: 'POST', body: fd });
+  const res = await fetch(apiUrl, { method: 'POST', body: fd });
   const js  = await res.json();
   toast(js.message || js.error);
   f.reset();
@@ -392,7 +398,7 @@
         render(fullList.filter(d => d.name.toLowerCase().includes(term) || d.path.toLowerCase().includes(term)), 'results-list', false);
       };
       window.downloadCsv = () => { let csv = 'Código,Documento\n'; fullList.forEach(d => d.codes.forEach(c => csv += `${c},${d.name}\n`)); const blob = new Blob([csv], { type:'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'documentos.csv'; a.click(); URL.revokeObjectURL(url); };
-      window.downloadPdfs = () => { window.location = `${api}?action=download_pdfs`; };
+      window.downloadPdfs = () => { window.location = `${apiUrl}&action=download_pdfs`; };
 
       // *** Cambios aquí para mayúsculas/minúsculas ***
       const codeInput = document.getElementById('codeInput'), suggest = document.getElementById('suggestions'); let timeoutId;
@@ -401,7 +407,7 @@
         const term = codeInput.value.trim(); // <--- sin .toUpperCase()
         if (!term) return suggest.classList.add('hidden');
         timeoutId = setTimeout(async () => {
-          const r = await fetch(`${api}?action=suggest&term=${encodeURIComponent(term)}`);
+          const r = await fetch(`${apiUrl}&action=suggest&term=${encodeURIComponent(term)}`);
           const arr = await r.json();
           if (!arr.length) return suggest.classList.add('hidden');
           suggest.innerHTML = arr.map(c => `<div class="py-1 px-2 hover:bg-gray-100 cursor-pointer" data-code="${c}">${c}</div>`).join('');
@@ -417,7 +423,7 @@
         const fd = new FormData();
         fd.append('action', 'search_by_code');
         fd.append('code', code);
-        const res = await fetch(api, { method: 'POST', body: fd });
+        const res = await fetch(apiUrl, { method: 'POST', body: fd });
         const data = await res.json();
 
         document.getElementById('results-code').innerHTML = '';
@@ -438,7 +444,7 @@
         document.getElementById('codes').value = d.codes.join('\n');
       };
       window.deleteDoc = async id => {
-        const res = await fetch(`${api}?action=delete&id=${id}`);
+        const res = await fetch(`${apiUrl}&action=delete&id=${id}`);
         const js = await res.json();
         toast(js.message||js.error);
         document.querySelector('.tab.active').click();

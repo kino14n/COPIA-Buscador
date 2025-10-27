@@ -108,10 +108,17 @@
   <!-- SCRIPT FUNCIONALIDAD -->
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const api = '../api.php';
+      const params = new URLSearchParams(window.location.search);
+      const clientCode = params.get('c');
+      if (!clientCode) {
+        window.location.href = '../index.php';
+        return;
+      }
+      const apiBase = '../api.php';
+      const apiUrl = `${apiBase}?c=${encodeURIComponent(clientCode)}`;
       let fullList = [];
 
-      fetch(`${api}?action=list&page=1&per_page=0`)
+      fetch(`${apiUrl}&action=list&page=1&per_page=0`)
         .then(r => r.json())
         .then(js => {
           fullList = js.data || [];
