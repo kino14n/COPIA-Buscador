@@ -1,1 +1,3 @@
 /data/documents.db
+/uploads/
+!/uploads/.gitignore
