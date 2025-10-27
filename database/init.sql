@@ -3,7 +3,6 @@ CREATE TABLE IF NOT EXISTS _control_clientes (
   codigo VARCHAR(50) UNIQUE,
   nombre VARCHAR(100),
   password_hash VARCHAR(255),
-  rol VARCHAR(20) DEFAULT 'cliente',
   activo BOOLEAN DEFAULT 1,
   fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP
 );
