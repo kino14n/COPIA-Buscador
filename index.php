@@ -1,4 +1,6 @@
 <?php
+error_log('✅ [INDEX] index.php cargado');
+echo '<!-- INDEX INIT -->';
 require __DIR__ . '/config.php';
 session_start();
 
@@ -63,6 +65,7 @@ try {
     $clientes = [];
     $error = $error ?: 'No se pudieron cargar los clientes: ' . $e->getMessage();
 }
+error_log('✅ [INDEX] Renderizando vista');
 ?>
 <!DOCTYPE html>
 <html lang="es">

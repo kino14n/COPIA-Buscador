@@ -1,5 +1,7 @@
 <?php
 session_start();
+error_log('✅ [GENERATOR] client-generator.php iniciado');
+echo '<!-- GEN INIT -->';
 require __DIR__ . '/config.php';
 require __DIR__ . '/helpers/tenant.php';
 
@@ -107,7 +109,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $ok = "✅ Cliente creado. URL: /clientes/{$codigo}/index.html | API con c: ?c={$codigo}";
         $codigoCreado = $codigo;
+        error_log('✅ [GENERATOR] Cliente creado: ' . $codigo);
     } catch (Exception $e) {
+        error_log('❌ [GENERATOR] Error: ' . $e->getMessage());
+        echo '<!-- GEN ERROR -->';
         $err = '❌ ' . $e->getMessage();
     }
 }
