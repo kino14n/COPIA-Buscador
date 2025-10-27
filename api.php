@@ -1,7 +1,8 @@
 <?php
 require __DIR__ . '/config.php';
-session_start();
+require __DIR__ . '/helpers/tenant.php';
 
+session_start();
 header('Content-Type: application/json');
 
 function json_exit($payload) {
@@ -9,33 +10,33 @@ function json_exit($payload) {
     exit;
 }
 
-$cliente = $_GET['c'] ?? ($_SESSION['cliente'] ?? null);
-if ($cliente === null) {
-    json_exit(['error' => 'Cliente no especificado']);
+$scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+$clienteRaw = $_GET['c']
+    ?? ($_SESSION['cliente']
+        ?? (basename(dirname($scriptName)) === 'clientes' ? basename(dirname(__DIR__)) : null));
+
+if ($clienteRaw === null) {
+    $scriptDir = trim(dirname($scriptName), '/');
+    $parts = $scriptDir !== '' ? explode('/', $scriptDir) : [];
+    $count = count($parts);
+    if ($count >= 2 && $parts[$count - 2] === 'clientes') {
+        $clienteRaw = $parts[$count - 1];
+    }
 }
 
-$cliente = preg_replace('/[^a-z0-9_]/i', '', (string)$cliente);
+$cliente = sanitize_code($clienteRaw);
 if ($cliente === '') {
-    json_exit(['error' => 'Código de cliente inválido']);
+    json_exit(['error' => 'Cliente no especificado o inválido']);
 }
 
-try {
-    $stmt = $db->prepare('SELECT codigo, activo FROM _control_clientes WHERE codigo = ? AND activo = 1 LIMIT 1');
-    $stmt->execute([$cliente]);
-    $clienteRow = $stmt->fetch(PDO::FETCH_ASSOC);
-} catch (PDOException $e) {
-    json_exit(['error' => 'Error consultando clientes: ' . $e->getMessage()]);
-}
-
-if (!$clienteRow) {
+if (!ensure_active_client($db, $cliente)) {
     json_exit(['error' => 'Cliente no encontrado o inactivo']);
 }
 
-$_SESSION['cliente'] = $clienteRow['codigo'];
-$cliente = $clienteRow['codigo'];
+$_SESSION['cliente'] = $cliente;
 
-$tabla_docs = "{$cliente}_documents";
-$tabla_codes = "{$cliente}_codes";
+$tabla_docs = table_docs($cliente);
+$tabla_codes = table_codes($cliente);
 $tabla_docs_sql = "`{$tabla_docs}`";
 $tabla_codes_sql = "`{$tabla_codes}`";
 
