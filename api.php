@@ -4,6 +4,8 @@ require __DIR__ . '/helpers/tenant.php';
 
 session_start();
 header('Content-Type: application/json');
+error_log('✅ [API] api.php iniciado');
+echo '<!-- API INIT -->';
 
 function json_exit($payload) {
     echo json_encode($payload);
@@ -32,6 +34,8 @@ if ($cliente === '') {
 if (!ensure_active_client($db, $cliente)) {
     json_exit(['error' => 'Cliente no encontrado o inactivo']);
 }
+
+error_log('✅ [API] Cliente validado: ' . $cliente);
 
 $_SESSION['cliente'] = $cliente;
 
@@ -303,6 +307,10 @@ try {
         default:
             json_exit(['error' => 'Acción inválida']);
     }
+} catch (PDOException $e) {
+    error_log('❌ [API] Error DB: ' . $e->getMessage());
+    echo '<!-- DB ERROR -->';
+    json_exit(['error' => $e->getMessage()]);
 } catch (Exception $e) {
     json_exit(['error' => $e->getMessage()]);
 }
