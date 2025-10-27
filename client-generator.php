@@ -1,34 +1,7 @@
 <?php
 require __DIR__ . '/config.php';
+require __DIR__ . '/copy_template.php';
 session_start();
-
-function copy_recursive(string $source, string $destination): void {
-    if (!is_dir($source)) {
-        throw new RuntimeException("Directorio de origen no encontrado: {$source}");
-    }
-
-    if (!is_dir($destination) && !mkdir($destination, 0777, true) && !is_dir($destination)) {
-        throw new RuntimeException("No se pudo crear el directorio destino: {$destination}");
-    }
-
-    $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($source, FilesystemIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::SELF_FIRST
-    );
-
-    foreach ($iterator as $item) {
-        $targetPath = $destination . DIRECTORY_SEPARATOR . $iterator->getSubPathName();
-        if ($item->isDir()) {
-            if (!is_dir($targetPath) && !mkdir($targetPath, 0777, true) && !is_dir($targetPath)) {
-                throw new RuntimeException("No se pudo crear el directorio: {$targetPath}");
-            }
-        } else {
-            if (!copy($item->getPathname(), $targetPath)) {
-                throw new RuntimeException("No se pudo copiar el archivo: {$item->getPathname()}");
-            }
-        }
-    }
-}
 
 $message = '';
 $error = '';
@@ -99,15 +72,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('La carpeta del cliente ya existe.');
             }
 
-            copy_recursive($plantilla, $clienteDir);
+            copyDir($plantilla, $clienteDir);
 
             $apiBootstrap = <<<'PHP'
 <?php
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
+$queryParams = [];
+$queryString = $_SERVER['QUERY_STRING'] ?? '';
+if ($queryString !== '') {
+    parse_str($queryString, $queryParams);
+}
+$queryParams['c'] = '{{CLIENTE}}';
+$compiledQuery = http_build_query($queryParams);
+$_GET = array_merge($queryParams, $_GET ?? []);
 $_GET['c'] = '{{CLIENTE}}';
+$_REQUEST = array_merge($_REQUEST ?? [], $queryParams);
+$_REQUEST['c'] = '{{CLIENTE}}';
 $_SESSION['cliente'] = '{{CLIENTE}}';
+$_SERVER['QUERY_STRING'] = $compiledQuery;
+$_SERVER['REQUEST_URI'] = '/api.php?' . $compiledQuery;
 require dirname(__DIR__, 2) . '/api.php';
 PHP;
 
@@ -118,8 +103,20 @@ PHP;
 
             $pdfBootstrap = <<<'PHP'
 <?php
-$_GET['c'] = '{{CLIENTE}}';
 chdir(dirname(__DIR__, 2));
+$queryParams = [];
+$queryString = $_SERVER['QUERY_STRING'] ?? '';
+if ($queryString !== '') {
+    parse_str($queryString, $queryParams);
+}
+$queryParams['c'] = '{{CLIENTE}}';
+$compiledQuery = http_build_query($queryParams);
+$_GET = array_merge($queryParams, $_GET ?? []);
+$_GET['c'] = '{{CLIENTE}}';
+$_REQUEST = array_merge($_REQUEST ?? [], $queryParams);
+$_REQUEST['c'] = '{{CLIENTE}}';
+$_SERVER['QUERY_STRING'] = $compiledQuery;
+$_SERVER['REQUEST_URI'] = '/pdf-search.php?' . $compiledQuery;
 require __DIR__ . '/../../pdf-search.php';
 PHP;
 
@@ -129,7 +126,7 @@ PHP;
             }
 
             $db->commit();
-            $message = '✅ Cliente creado URL: /clientes/' . htmlspecialchars($codigo, ENT_QUOTES, 'UTF-8') . '/index.html';
+            $message = '✅ Cliente creado. URL: /clientes/' . htmlspecialchars($codigo, ENT_QUOTES, 'UTF-8') . '/index.html';
         } catch (Throwable $e) {
             if ($db->inTransaction()) {
                 $db->rollBack();
