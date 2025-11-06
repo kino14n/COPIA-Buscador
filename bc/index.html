@@ -175,7 +175,7 @@
           results.innerHTML = '<p class="text-gray-500">No hay documentos para este código.</p>';
           return;
         }
-        results.innerHTML = items.map(d => `<div class="border rounded-lg p-4 bg-white shadow-sm"><h3 class="font-semibold text-lg truncate">${d.name}</h3><p class="text-sm text-gray-600 mt-1 truncate">${d.date}</p><p class="text-xs text-gray-500 italic mt-0.5 truncate">${d.path}</p><a href="../uploads/${d.path}" target="_blank" class="text-red-600 hover:underline mt-1 inline-block font-semibold">Ver PDF</a></div>`).join('');
+        results.innerHTML = items.map(d => `<div class="border rounded-lg p-4 bg-white shadow-sm"><h3 class="font-semibold text-lg truncate">${d.name}</h3><p class="text-sm text-gray-600 mt-1 truncate">${d.date}</p><p class="text-xs text-gray-500 italic mt-0.5 truncate">${d.path}</p><a href="../download.php?c=${encodeURIComponent(clientCode)}&id=${d.id}" target="_blank" class="text-red-600 hover:underline mt-1 inline-block font-semibold">Ver PDF</a></div>`).join('');
       }
 
       window.doCodeSearch = () => {

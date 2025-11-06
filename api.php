@@ -1,12 +1,12 @@
 <?php
 require __DIR__ . '/config.php';
 require __DIR__ . '/helpers/tenant.php';
+require __DIR__ . '/helpers/log.php';
+require __DIR__ . '/helpers/storage.php';
 
 session_start();
 header('Content-Type: application/json');
 error_log('✅ [API] api.php iniciado');
-echo '<!-- API INIT -->';
-
 function json_exit($payload) {
     echo json_encode($payload);
     exit;
@@ -39,39 +39,101 @@ error_log('✅ [API] Cliente validado: ' . $cliente);
 
 $_SESSION['cliente'] = $cliente;
 
+$clientConfig = load_client_config($cliente);
+$clientAdminConfig = isset($clientConfig['admin']) && is_array($clientConfig['admin']) ? $clientConfig['admin'] : [];
+$searchMaxCodes = $config['limits']['search_max_codes'] ?? 25;
+$listPerPageMax = $config['limits']['list_per_page_max'] ?? 100;
+
 $tabla_docs = table_docs($cliente);
 $tabla_codes = table_codes($cliente);
 $tabla_docs_sql = "`{$tabla_docs}`";
 $tabla_codes_sql = "`{$tabla_codes}`";
 
 function ensure_upload_dir($cliente) {
-    $dir = __DIR__ . '/uploads/' . $cliente;
-    if (!is_dir($dir)) {
-        if (!mkdir($dir, 0777, true) && !is_dir($dir)) {
-            throw new RuntimeException('No se pudo crear la carpeta de uploads');
-        }
-    }
-    return $dir;
+    global $config;
+    return ensure_client_upload_dir($config, $cliente);
 }
 
 function resolve_upload_path($cliente, $relativePath) {
-    $relativePath = ltrim($relativePath, '/');
-    if (strpos($relativePath, '/') === false) {
-        $candidate = $cliente . '/' . $relativePath;
-        $full = __DIR__ . '/uploads/' . $candidate;
-        if (is_file($full)) {
-            return [$full, $candidate];
-        }
-        $fullLegacy = __DIR__ . '/uploads/' . $relativePath;
-        return [$fullLegacy, $relativePath];
-    }
-    return [__DIR__ . '/uploads/' . $relativePath, $relativePath];
+    global $config;
+    return resolve_client_upload_path($config, $cliente, $relativePath);
 }
+
+function mark_client_authenticated(string $cliente): void
+{
+    if (!isset($_SESSION['client_auth'])) {
+        $_SESSION['client_auth'] = [];
+    }
+    $_SESSION['client_auth'][$cliente] = true;
+}
+
+function ensure_client_authenticated(string $cliente): void
+{
+    if (empty($_SESSION['client_auth'][$cliente])) {
+        http_response_code(403);
+        json_exit(['error' => 'No autenticado']);
+    }
+}
+
+function validate_uploaded_file(array $file, array $config): void
+{
+    if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK || empty($file['tmp_name'])) {
+        throw new RuntimeException('Archivo no recibido');
+    }
+
+    $maxBytes = $config['uploads']['max_bytes'] ?? 0;
+    if ($maxBytes > 0 && ($file['size'] ?? 0) > $maxBytes) {
+        throw new RuntimeException('El archivo supera el tamaño máximo permitido');
+    }
+
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime = $finfo ? finfo_file($finfo, $file['tmp_name']) : null;
+    if ($finfo) {
+        finfo_close($finfo);
+    }
+    if (!$mime && function_exists('mime_content_type')) {
+        $mime = mime_content_type($file['tmp_name']);
+    }
+
+    $allowed = $config['uploads']['allowed_mimes'] ?? [];
+    if ($allowed) {
+        if (!$mime) {
+            throw new RuntimeException('No se pudo validar el tipo de archivo');
+        }
+        if (!in_array($mime, $allowed, true)) {
+            throw new RuntimeException('Tipo de archivo no permitido');
+        }
+    }
+}
+
 
 $action = $_REQUEST['action'] ?? '';
 
+$publicActions = ['authenticate'];
+if (!in_array($action, $publicActions, true)) {
+    ensure_client_authenticated($cliente);
+}
+
 try {
     switch ($action) {
+        case 'authenticate':
+            $accessKey = trim($_POST['access_key'] ?? '');
+            if ($accessKey === '') {
+                json_exit(['error' => 'Clave requerida']);
+            }
+            $expected = $clientAdminConfig['access_key'] ?? '';
+            if ($expected === '') {
+                json_exit(['error' => 'Acceso no configurado']);
+            }
+            if (!verify_secret($accessKey, $expected)) {
+                audit_log('Intento fallido de acceso para cliente ' . $cliente);
+                http_response_code(403);
+                json_exit(['error' => 'Clave inválida']);
+            }
+            mark_client_authenticated($cliente);
+            audit_log('Acceso concedido para cliente ' . $cliente);
+            json_exit(['ok' => true]);
+
         case 'suggest':
             $term = trim($_GET['term'] ?? '');
             if ($term === '') {
@@ -85,14 +147,12 @@ try {
             $name  = $_POST['name'] ?? '';
             $date  = $_POST['date'] ?? '';
             $codes = array_filter(array_map('trim', preg_split('/\r?\n/', $_POST['codes'] ?? '')));
-            if (empty($_FILES['file']['tmp_name'])) {
-                json_exit(['error' => 'Archivo no recibido']);
-            }
+            validate_uploaded_file($_FILES['file'] ?? [], $config);
             $uploadsDir = ensure_upload_dir($cliente);
-            $filename = time() . '_' . basename($_FILES['file']['name']);
+            $filename = time() . '_' . sanitize_uploaded_filename($_FILES['file']['name'] ?? '');
             $target = $uploadsDir . '/' . $filename;
             if (!move_uploaded_file($_FILES['file']['tmp_name'], $target)) {
-                json_exit(['error' => 'No se pudo subir el PDF']);
+                throw new RuntimeException('No se pudo subir el archivo');
             }
             $path = $cliente . '/' . $filename;
 
@@ -106,11 +166,12 @@ try {
                     $ins->execute([$docId, $c]);
                 }
             }
+            audit_log('Documento creado para cliente ' . $cliente . ' (ID ' . $docId . ')');
             json_exit(['message' => 'Documento guardado']);
 
         case 'list':
             $page    = max(1, (int)($_GET['page'] ?? 1));
-            $perPage = isset($_GET['per_page']) ? (int)$_GET['per_page'] : 50;
+            $perPage = isset($_GET['per_page']) ? (int)$_GET['per_page'] : $listPerPageMax;
             $total   = (int)$db->query("SELECT COUNT(*) FROM {$tabla_docs_sql}")->fetchColumn();
 
             if ($perPage === 0) {
@@ -119,7 +180,7 @@ try {
                 $lastPage = 1;
                 $page = 1;
             } else {
-                $perPage = max(1, min(50, $perPage));
+                $perPage = max(1, min($listPerPageMax, $perPage));
                 $offset  = ($page - 1) * $perPage;
                 $lastPage = (int)ceil($total / $perPage);
 
@@ -152,6 +213,9 @@ try {
             $codes = array_filter(array_map('trim', preg_split('/\r?\n/', $_POST['codes'] ?? '')));
             if (empty($codes)) {
                 json_exit([]);
+            }
+            if (count($codes) > $searchMaxCodes) {
+                json_exit(['error' => 'Se permiten hasta ' . $searchMaxCodes . ' códigos por búsqueda']);
             }
             $cond = implode(' OR ', array_fill(0, count($codes), 'UPPER(c.code) = UPPER(?)'));
             $stmt = $db->prepare("SELECT d.id,d.name,d.date,d.path,c.code FROM {$tabla_docs_sql} d JOIN {$tabla_codes_sql} c ON d.id=c.document_id WHERE {$cond}");
@@ -223,6 +287,7 @@ try {
             }
             $zip->close();
 
+            audit_log('Descarga masiva de documentos para cliente ' . $cliente);
             readfile($tmpFile);
             unlink($tmpFile);
             exit;
@@ -237,6 +302,7 @@ try {
             }
 
             if (!empty($_FILES['file']['tmp_name'])) {
+                validate_uploaded_file($_FILES['file'], $config);
                 $old = $db->prepare("SELECT path FROM {$tabla_docs_sql} WHERE id=?");
                 $old->execute([$id]);
                 $oldPath = $old->fetchColumn();
@@ -247,9 +313,11 @@ try {
                     }
                 }
                 $uploadsDir = ensure_upload_dir($cliente);
-                $fn = time() . '_' . basename($_FILES['file']['name']);
+                $fn = time() . '_' . sanitize_uploaded_filename($_FILES['file']['name']);
                 $target = $uploadsDir . '/' . $fn;
-                move_uploaded_file($_FILES['file']['tmp_name'], $target);
+                if (!move_uploaded_file($_FILES['file']['tmp_name'], $target)) {
+                    throw new RuntimeException('No se pudo actualizar el archivo');
+                }
                 $path = $cliente . '/' . $fn;
                 $db->prepare("UPDATE {$tabla_docs_sql} SET name=?,date=?,path=? WHERE id=?")->execute([$name, $date, $path, $id]);
             } else {
@@ -263,24 +331,46 @@ try {
                     $ins->execute([$id, $c]);
                 }
             }
+            audit_log('Documento actualizado para cliente ' . $cliente . ' (ID ' . $id . ')');
             json_exit(['message' => 'Documento actualizado']);
 
         case 'delete':
-            $id = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                http_response_code(405);
+                json_exit(['error' => 'Método no permitido']);
+            }
+            $id = (int)($_POST['id'] ?? 0);
             if (!$id) {
                 json_exit(['error' => 'ID inválido']);
+            }
+            $providedKey = trim($_POST['deletion_key'] ?? '');
+            if ($providedKey === '') {
+                json_exit(['error' => 'Clave de eliminación requerida']);
+            }
+            $expectedDeletion = $clientAdminConfig['deletion_key'] ?? '';
+            if ($expectedDeletion === '') {
+                json_exit(['error' => 'Clave de eliminación no configurada']);
+            }
+            if (!verify_secret($providedKey, $expectedDeletion)) {
+                http_response_code(403);
+                json_exit(['error' => 'Clave de eliminación inválida']);
+            }
+            if (($_POST['confirm'] ?? '') !== 'yes') {
+                json_exit(['error' => 'Confirmación requerida']);
             }
             $old = $db->prepare("SELECT path FROM {$tabla_docs_sql} WHERE id=?");
             $old->execute([$id]);
             $oldPath = $old->fetchColumn();
-            if ($oldPath) {
-                [$fullOld,] = resolve_upload_path($cliente, $oldPath);
-                if (is_file($fullOld)) {
-                    @unlink($fullOld);
-                }
+            if (!$oldPath) {
+                json_exit(['error' => 'Documento no encontrado']);
+            }
+            [$fullOld,] = resolve_upload_path($cliente, $oldPath);
+            if (is_file($fullOld)) {
+                @unlink($fullOld);
             }
             $db->prepare("DELETE FROM {$tabla_codes_sql} WHERE document_id=?")->execute([$id]);
             $db->prepare("DELETE FROM {$tabla_docs_sql} WHERE id=?")->execute([$id]);
+            audit_log('Documento eliminado para cliente ' . $cliente . ' (ID ' . $id . ')');
             json_exit(['message' => 'Documento eliminado']);
 
         case 'search_by_code':
@@ -309,8 +399,11 @@ try {
     }
 } catch (PDOException $e) {
     error_log('❌ [API] Error DB: ' . $e->getMessage());
-    echo '<!-- DB ERROR -->';
-    json_exit(['error' => $e->getMessage()]);
-} catch (Exception $e) {
+    audit_log('Error de base de datos para cliente ' . $cliente . ': ' . $e->getMessage());
+    http_response_code(500);
+    json_exit(['error' => 'Ocurrió un error en la base de datos.']);
+} catch (Throwable $e) {
+    audit_log('Error en API para cliente ' . $cliente . ': ' . $e->getMessage());
+    http_response_code(400);
     json_exit(['error' => $e->getMessage()]);
 }

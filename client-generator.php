@@ -1,72 +1,48 @@
 <?php
-// Habilitar reporte de errores para debugging
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
+ini_set('display_errors', '0');
+ini_set('display_startup_errors', '0');
 error_reporting(E_ALL);
 
-// Iniciar sesión
 session_start();
 
-error_log('✅ [GENERATOR] client-generator.php iniciado');
-echo '<!-- GEN INIT -->' . PHP_EOL;
+require __DIR__ . '/config.php';
+require __DIR__ . '/helpers/tenant.php';
+require __DIR__ . '/helpers/log.php';
+require __DIR__ . '/helpers/auth.php';
 
-// Verificar que los archivos necesarios existan
-$configFile = __DIR__ . '/config.php';
-$helperFile = __DIR__ . '/helpers/tenant.php';
+require_admin_auth($config);
 
-if (!file_exists($configFile)) {
-    die('❌ Error: No se encuentra config.php en ' . $configFile);
-}
+audit_log('Ingreso al generador de clientes');
 
-if (!file_exists($helperFile)) {
-    die('❌ Error: No se encuentra helpers/tenant.php en ' . $helperFile);
-}
-
-// Cargar archivos requeridos
-try {
-    require $configFile;
-    require $helperFile;
-    echo '<!-- Config y helpers cargados correctamente -->' . PHP_EOL;
-} catch (Exception $e) {
-    die('❌ Error al cargar archivos: ' . $e->getMessage());
-}
-
-// Verificar que la conexión a la base de datos existe
-if (!isset($db) || !($db instanceof PDO)) {
-    die('❌ Error: No hay conexión a la base de datos');
-}
-
-// Variables de estado
 $err = $ok = null;
 $codigoInput = $_POST['codigo'] ?? '';
 $nombreInput = $_POST['nombre'] ?? '';
 $codigoCreado = '';
 
-// Procesar el formulario
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $codigo = sanitize_code($codigoInput);
+        $codigoInput = $codigo;
         $nombre = trim($nombreInput);
         $pass = trim($_POST['password'] ?? '');
+        $accessKey = trim($_POST['access_key'] ?? '');
+        $deletionKey = trim($_POST['deletion_key'] ?? '');
         $importar = isset($_POST['importar']);
 
-        if ($codigo === '' || $nombre === '' || $pass === '') {
-            throw new Exception('Faltan campos requeridos.');
+        if ($codigo === '' || $nombre === '' || $pass === '' || $accessKey === '' || $deletionKey === '') {
+            throw new RuntimeException('Faltan campos requeridos.');
         }
 
-        // Verificar que el código no existe
         $st = $db->prepare('SELECT 1 FROM _control_clientes WHERE codigo = ?');
         $st->execute([$codigo]);
         if ($st->fetch()) {
-            throw new Exception('El código ya existe.');
+            throw new RuntimeException('El código ya existe.');
         }
 
-        // Crear el cliente
         $hash = password_hash($pass, PASSWORD_BCRYPT);
         $db->prepare('INSERT INTO _control_clientes (codigo, nombre, password_hash, activo) VALUES (?, ?, ?, 1)')
            ->execute([$codigo, $nombre, $hash]);
 
-        // Crear tablas del cliente
         $docs = table_docs($codigo);
         $codes = table_codes($codigo);
         $docsSql = "`{$docs}`";
@@ -89,47 +65,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             FOREIGN KEY (document_id) REFERENCES {$docsSql} (id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-        // Crear carpeta de uploads
-        $uploadsDir = __DIR__ . '/uploads/' . $codigo;
-        if (!is_dir($uploadsDir)) {
-            if (!mkdir($uploadsDir, 0777, true) && !is_dir($uploadsDir)) {
-                throw new Exception('No se pudo crear la carpeta de uploads.');
-            }
+        $uploadsDir = uploads_base_path($config, $codigo);
+        if (!is_dir($uploadsDir) && !mkdir($uploadsDir, 0775, true) && !is_dir($uploadsDir)) {
+            throw new RuntimeException('No se pudo crear la carpeta de uploads privada.');
         }
 
-        // Crear carpeta del cliente
-        $clientesDir = __DIR__ . '/clientes';
-        if (!is_dir($clientesDir)) {
-            if (!mkdir($clientesDir, 0777, true) && !is_dir($clientesDir)) {
-                throw new Exception('No se pudo crear la carpeta clientes.');
-            }
+        $clientesDir = __DIR__ . '/clientes/' . $codigo;
+        if (is_dir($clientesDir)) {
+            throw new RuntimeException('La carpeta del cliente ya existe.');
+        }
+
+        if (!mkdir($clientesDir, 0775, true) && !is_dir($clientesDir)) {
+            throw new RuntimeException('No se pudo crear la carpeta del cliente.');
         }
 
         $templateDir = __DIR__ . '/htdocs';
-        $destDir = $clientesDir . '/' . $codigo;
-
-        if (is_dir($destDir)) {
-            throw new Exception('La carpeta del cliente ya existe.');
-        }
-
-        // Copiar plantilla
         if (is_dir($templateDir)) {
-            if (!copy_dir($templateDir, $destDir)) {
-                throw new Exception('No se pudo copiar la plantilla de htdocs.');
-            }
-        } else {
-            if (!mkdir($destDir, 0777, true) && !is_dir($destDir)) {
-                throw new Exception('No se pudo crear la carpeta del cliente.');
+            if (!copy_dir($templateDir, $clientesDir)) {
+                throw new RuntimeException('No se pudo copiar la plantilla de htdocs.');
             }
         }
 
-        // Crear archivo tenant.json
-        file_put_contents($destDir . '/tenant.json', json_encode([
+        file_put_contents($clientesDir . '/tenant.json', json_encode([
             'codigo' => $codigo,
             'nombre' => $nombre,
         ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 
-        // Importar datos si se solicitó
+        $clientConfig = [
+            'branding' => [
+                'name' => $nombre,
+                'contact_email' => $_POST['contact_email'] ?? null,
+            ],
+            'admin' => [
+                'access_key' => $accessKey,
+                'deletion_key' => $deletionKey,
+            ],
+            'db' => [],
+        ];
+        $configBody = "<?php\nreturn " . var_export($clientConfig, true) . ";\n";
+        file_put_contents($clientesDir . '/config.php', $configBody);
+
         if ($importar) {
             $hasDocs = $db->query("SHOW TABLES LIKE 'documents'")->fetchColumn();
             $hasCodes = $db->query("SHOW TABLES LIKE 'codes'")->fetchColumn();
@@ -155,11 +130,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $ok = "✅ Cliente creado exitosamente. URL: /clientes/{$codigo}/index.html | API con c: ?c={$codigo}";
         $codigoCreado = $codigo;
-        error_log('✅ [GENERATOR] Cliente creado: ' . $codigo);
-        
-    } catch (Exception $e) {
-        error_log('❌ [GENERATOR] Error: ' . $e->getMessage());
-        echo '<!-- GEN ERROR: ' . htmlspecialchars($e->getMessage()) . ' -->' . PHP_EOL;
+        audit_log('Cliente creado: ' . $codigo);
+        $codigoInput = '';
+        $nombreInput = '';
+        $_POST = [];
+    } catch (Throwable $e) {
+        audit_log('Error al crear cliente: ' . $e->getMessage());
         $err = '❌ ' . $e->getMessage();
     }
 }
@@ -296,58 +272,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="container">
         <form method="post">
             <h2>🏢 Crear nuevo cliente</h2>
-            
+
             <?php if ($ok): ?>
                 <div class="ok"><?php echo htmlspecialchars($ok, ENT_QUOTES, 'UTF-8'); ?></div>
             <?php endif; ?>
-            
+
             <?php if ($err): ?>
                 <div class="err"><?php echo htmlspecialchars($err, ENT_QUOTES, 'UTF-8'); ?></div>
             <?php endif; ?>
-            
+
             <label for="codigo">Código del cliente <small>(minúsculas, números y _)</small></label>
-            <input 
-                id="codigo" 
-                name="codigo" 
+            <input
+                id="codigo"
+                name="codigo"
                 type="text"
-                required 
+                required
                 pattern="[a-z0-9_]+"
-                placeholder="cliente1" 
+                placeholder="cliente1"
                 value="<?php echo htmlspecialchars($codigoInput, ENT_QUOTES, 'UTF-8'); ?>"
             >
-            
+
             <label for="nombre">Nombre del cliente</label>
-            <input 
-                id="nombre" 
-                name="nombre" 
+            <input
+                id="nombre"
+                name="nombre"
                 type="text"
-                required 
-                placeholder="Ferretería XYZ" 
+                required
+                placeholder="Ferretería XYZ"
                 value="<?php echo htmlspecialchars($nombreInput, ENT_QUOTES, 'UTF-8'); ?>"
             >
-            
+
             <div class="row">
                 <div>
                     <label for="password">Contraseña</label>
                     <input id="password" name="password" type="password" required minlength="4">
                 </div>
                 <div class="chk">
-                    <input 
-                        type="checkbox" 
-                        name="importar" 
-                        id="im" 
+                    <input
+                        type="checkbox"
+                        name="importar"
+                        id="im"
                         <?php echo isset($_POST['importar']) ? 'checked' : ''; ?>
                     >
                     <label for="im">Importar datos de tablas globales</label>
                 </div>
             </div>
-            
+
+            <label for="access_key">Clave de acceso del panel</label>
+            <input id="access_key" name="access_key" type="text" required minlength="4" value="<?php echo isset($_POST['access_key']) ? htmlspecialchars($_POST['access_key'], ENT_QUOTES, 'UTF-8') : ''; ?>">
+
+            <label for="deletion_key">Clave para eliminar documentos</label>
+            <input id="deletion_key" name="deletion_key" type="text" required minlength="4" value="<?php echo isset($_POST['deletion_key']) ? htmlspecialchars($_POST['deletion_key'], ENT_QUOTES, 'UTF-8') : ''; ?>">
+
             <button type="submit">✅ Crear cliente</button>
-            
+
             <p class="note">
-                Se crearán las tablas necesarias con prefijo, la carpeta 
-                <code>uploads/<?php echo htmlspecialchars($codigoCreado ?: sanitize_code($codigoInput), ENT_QUOTES, 'UTF-8'); ?></code> 
-                y se clonará la plantilla de <code>htdocs/</code>.
+                Se crearán las tablas necesarias con prefijo, la carpeta privada en
+                <code>storage/uploads/<?php echo htmlspecialchars($codigoCreado ?: sanitize_code($codigoInput), ENT_QUOTES, 'UTF-8'); ?></code>
+                y se clonará la plantilla de <code>htdocs/</code> si existe.
             </p>
         </form>
     </div>
