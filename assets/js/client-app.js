@@ -14,10 +14,41 @@ document.addEventListener('DOMContentLoaded', () => {
   let fullList = [];
   let pendingDeleteId = null;
   let intervalId = null;
+  let csrfToken = null;
+  let isProcessing = false;
+  let appInitialized = false;
+  const spinnerOverlay = document.getElementById('globalSpinner');
+
+  function setLoading(state) {
+    isProcessing = state;
+    if (!spinnerOverlay) {
+      return;
+    }
+    spinnerOverlay.classList.toggle('hidden', !state);
+  }
+
+  function updateCsrfToken(token) {
+    if (!token) {
+      return;
+    }
+    csrfToken = token;
+    const uploadField = document.getElementById('csrfUpload');
+    if (uploadField) {
+      uploadField.value = token;
+    }
+  }
+
+  function extractCsrf(payload) {
+    if (payload && typeof payload === 'object' && payload._csrf) {
+      updateCsrfToken(payload._csrf);
+      delete payload._csrf;
+    }
+    return payload;
+  }
 
   function startPolling(refreshFn) {
     stopPolling();
-    intervalId = window.setInterval(refreshFn, 60000);
+    intervalId = window.setInterval(refreshFn, 240000);
   }
 
   function stopPolling() {
@@ -29,12 +60,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function makeForm(data) {
     const formData = new URLSearchParams();
+    if (csrfToken) {
+      formData.append('_csrf', csrfToken);
+    }
     Object.entries(data).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
         formData.append(key, value);
       }
     });
     return formData;
+  }
+
+  function appendCsrf(formData) {
+    if (formData instanceof FormData && csrfToken && !formData.has('_csrf')) {
+      formData.append('_csrf', csrfToken);
+    }
+  }
+
+  async function fetchJson(url, options = {}, { showSpinner = false } = {}) {
+    const requestOptions = Object.assign({ credentials: 'same-origin' }, options);
+    if (showSpinner) {
+      setLoading(true);
+    }
+    try {
+      const response = await fetch(url, requestOptions);
+      const data = await response.json();
+      const payload = extractCsrf(data);
+      if (!response.ok) {
+        const message = payload && typeof payload === 'object' && payload.error ? payload.error : 'Error inesperado';
+        throw new Error(message);
+      }
+      return payload;
+    } catch (error) {
+      console.error(error);
+      toast(error.message === 'Failed to fetch' ? 'Se perdió la conexión con el servidor.' : error.message);
+      throw error;
+    } finally {
+      if (showSpinner) {
+        setLoading(false);
+      }
+    }
   }
 
   function toast(message, duration = 3000) {
@@ -51,6 +116,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }, duration);
   }
 
+  function setButtonLoading(button, loading) {
+    if (!button) {
+      return;
+    }
+    if (loading) {
+      button.dataset.originalText = button.textContent;
+      button.textContent = 'Procesando…';
+      button.disabled = true;
+    } else {
+      if (button.dataset.originalText) {
+        button.textContent = button.dataset.originalText;
+      }
+      button.disabled = false;
+    }
+  }
+
   function confirmDialog(message) {
     return new Promise((resolve) => {
       const overlay = document.getElementById('confirmOverlay');
@@ -60,6 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       document.getElementById('confirmMsg').textContent = message;
       overlay.classList.remove('hidden');
+      const confirmButton = document.getElementById('confirmOk');
       document.getElementById('confirmOk').onclick = () => {
         overlay.classList.add('hidden');
         resolve(true);
@@ -68,6 +150,9 @@ document.addEventListener('DOMContentLoaded', () => {
         overlay.classList.add('hidden');
         resolve(false);
       };
+      if (confirmButton) {
+        confirmButton.focus();
+      }
     });
   }
 
@@ -89,11 +174,16 @@ document.addEventListener('DOMContentLoaded', () => {
   window.clearSearch = clearSearchInternal;
 
   function initApp() {
+    if (appInitialized) {
+      return;
+    }
+    appInitialized = true;
     const deleteOverlay = document.getElementById('deleteOverlay');
     const deleteKeyInput = document.getElementById('deleteKeyInput');
     const deleteKeyError = document.getElementById('deleteKeyError');
     const tabs = document.querySelectorAll('.tab');
     const tabContents = document.querySelectorAll('.tab-content');
+    const refreshButton = document.getElementById('refreshButton');
 
     window.openDeleteOverlay = (id) => {
       pendingDeleteId = id;
@@ -102,6 +192,26 @@ document.addEventListener('DOMContentLoaded', () => {
       deleteOverlay.classList.remove('hidden');
       deleteKeyInput.focus();
     };
+
+    if (refreshButton) {
+      refreshButton.addEventListener('click', () => {
+        refresh();
+      });
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+      if (!deleteOverlay.classList.contains('hidden')) {
+        deleteOverlay.classList.add('hidden');
+        deleteKeyError.classList.add('hidden');
+      }
+      const confirmOverlay = document.getElementById('confirmOverlay');
+      if (confirmOverlay && !confirmOverlay.classList.contains('hidden')) {
+        confirmOverlay.classList.add('hidden');
+      }
+    });
 
     document.getElementById('deleteKeyOk').onclick = async () => {
       const key = deleteKeyInput.value.trim();
@@ -134,12 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function refresh() {
       try {
-        const response = await fetch(`${apiUrl}&action=list&page=1&per_page=0`, { credentials: 'same-origin' });
-        const payload = await response.json();
-        if (payload && payload.error) {
-          toast(payload.error);
-          return;
-        }
+        const payload = await fetchJson(`${apiUrl}&action=list&page=1&per_page=100`);
         fullList = payload.data || [];
 
         const activeTab = document.querySelector('.tab.active');
@@ -153,7 +258,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       } catch (error) {
         console.error(error);
-        toast('Error al cargar documentos');
       }
     }
 
@@ -229,10 +333,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const body = new FormData();
       body.append('action', 'search');
       body.append('codes', codes.join('\n'));
-      const response = await fetch(apiUrl, { method: 'POST', body, credentials: 'same-origin' });
-      const data = await response.json();
-      if (data && data.error) {
-        toast(data.error);
+      appendCsrf(body);
+      let data;
+      try {
+        data = await fetchJson(apiUrl, { method: 'POST', body });
+      } catch (error) {
         return;
       }
       const results = Array.isArray(data) ? data : [];
@@ -252,14 +357,37 @@ document.addEventListener('DOMContentLoaded', () => {
     const uploadForm = document.getElementById('form-upload');
     const fileInput = document.getElementById('file');
     const uploadWarning = document.getElementById('uploadWarning');
+    const dateInput = document.getElementById('date');
+
+    if (dateInput) {
+      const validateDate = () => {
+        const value = dateInput.value.trim();
+        const isValid = /^\d{4}-\d{2}-\d{2}$/.test(value);
+        dateInput.setCustomValidity(isValid ? '' : 'Formato de fecha inválido');
+      };
+      dateInput.addEventListener('change', validateDate);
+      dateInput.addEventListener('input', validateDate);
+    }
 
     if (uploadForm) {
-      uploadForm.onsubmit = async (event) => {
+      const submitButton = uploadForm.querySelector('button[type="submit"]');
+      if (fileInput) {
+        fileInput.addEventListener('change', () => {
+          const selected = fileInput.files[0];
+          if (selected && selected.size > 10 * 1024 * 1024) {
+            uploadWarning.classList.remove('hidden');
+          } else {
+            uploadWarning.classList.add('hidden');
+          }
+        });
+      }
+
+      uploadForm.addEventListener('submit', async (event) => {
         event.preventDefault();
-        if (!fileInput || !uploadWarning) {
+        if (!uploadWarning) {
           return;
         }
-        const selectedFile = fileInput.files[0];
+        const selectedFile = fileInput ? fileInput.files[0] : null;
         if (selectedFile && selectedFile.size > 10 * 1024 * 1024) {
           uploadWarning.classList.remove('hidden');
           return;
@@ -279,18 +407,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const action = uploadForm.id.value ? 'edit' : 'upload';
         const formData = new FormData(uploadForm);
         formData.append('action', action);
+        appendCsrf(formData);
 
-        const response = await fetch(apiUrl, { method: 'POST', body: formData, credentials: 'same-origin' });
-        const payload = await response.json();
-        if (payload && payload.error) {
-          toast(payload.error);
-          return;
+        setButtonLoading(submitButton, true);
+        try {
+          const payload = await fetchJson(apiUrl, { method: 'POST', body: formData }, { showSpinner: true });
+          toast(payload.message || 'Documento guardado');
+          uploadForm.reset();
+          uploadWarning.classList.add('hidden');
+          updateCsrfToken(csrfToken);
+          await refresh();
+        } catch (error) {
+          // error handled via toast
+        } finally {
+          setButtonLoading(submitButton, false);
         }
-        toast(payload.message || 'Documento guardado');
-        uploadForm.reset();
-        uploadWarning.classList.add('hidden');
-        await refresh();
-      };
+      });
     }
 
     window.clearConsultFilter = () => {
@@ -348,8 +480,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         suggestionTimeout = window.setTimeout(async () => {
           try {
-            const response = await fetch(`${apiUrl}&action=suggest&term=${encodeURIComponent(term)}`, { credentials: 'same-origin' });
-            const results = await response.json();
+            const results = await fetchJson(`${apiUrl}&action=suggest&term=${encodeURIComponent(term)}`);
             if (!Array.isArray(results) || results.length === 0) {
               suggestions.classList.add('hidden');
               suggestions.innerHTML = '';
@@ -403,10 +534,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const body = new FormData();
       body.append('action', 'search_by_code');
       body.append('code', code);
-      const response = await fetch(apiUrl, { method: 'POST', body, credentials: 'same-origin' });
-      const data = await response.json();
-      if (data && data.error) {
-        toast(data.error);
+      appendCsrf(body);
+      let data;
+      try {
+        data = await fetchJson(apiUrl, { method: 'POST', body });
+      } catch (error) {
         return;
       }
       const results = document.getElementById('results-code');
@@ -454,21 +586,16 @@ document.addEventListener('DOMContentLoaded', () => {
     async function deleteDoc(id, deletionKey) {
       try {
         const body = makeForm({ action: 'delete', id, deletion_key: deletionKey, confirm: 'yes' });
-        const response = await fetch(apiUrl, { method: 'POST', body, credentials: 'same-origin' });
-        const payload = await response.json();
-        if (response.ok && payload && !payload.error) {
-          toast(payload.message || 'Documento eliminado');
-          const active = document.querySelector('.tab.active');
-          if (active) {
-            active.click();
-          }
-          pendingDeleteId = null;
-          return true;
+        const payload = await fetchJson(apiUrl, { method: 'POST', body }, { showSpinner: true });
+        toast(payload.message || 'Documento eliminado');
+        const active = document.querySelector('.tab.active');
+        if (active) {
+          active.click();
         }
-        toast(payload.error || 'No se pudo eliminar el documento');
+        pendingDeleteId = null;
+        return true;
       } catch (error) {
         console.error(error);
-        toast('Error eliminando el documento');
       }
       return false;
     }
@@ -500,8 +627,35 @@ document.addEventListener('DOMContentLoaded', () => {
   const submitAccess = document.getElementById('submitAccess');
   const errorMsg = document.getElementById('errorMsg');
 
+  async function initializeSession() {
+    try {
+      const payload = await fetchJson(`${apiUrl}&action=session`, {}, { showSpinner: true });
+      if (payload && payload.csrf_token) {
+        updateCsrfToken(payload.csrf_token);
+      }
+      if (payload && payload.authenticated) {
+        loginOverlay.classList.add('hidden');
+        mainContent.classList.remove('hidden');
+        initApp();
+      } else {
+        loginOverlay.classList.remove('hidden');
+        mainContent.classList.add('hidden');
+        if (accessInput) {
+          accessInput.focus();
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      toast('No se pudo verificar la sesión.');
+      loginOverlay.classList.remove('hidden');
+      if (accessInput) {
+        accessInput.focus();
+      }
+    }
+  }
+
   if (submitAccess) {
-    submitAccess.onclick = async () => {
+    submitAccess.addEventListener('click', async () => {
       const value = accessInput.value.trim();
       if (!value) {
         errorMsg.classList.remove('hidden');
@@ -509,10 +663,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       errorMsg.classList.add('hidden');
       const body = makeForm({ action: 'authenticate', access_key: value });
+      setButtonLoading(submitAccess, true);
       try {
-        const response = await fetch(apiUrl, { method: 'POST', body, credentials: 'same-origin' });
-        const payload = await response.json();
-        if (response.ok && payload && payload.ok) {
+        const payload = await fetchJson(apiUrl, { method: 'POST', body }, { showSpinner: true });
+        if (payload && payload.ok) {
           loginOverlay.classList.add('hidden');
           mainContent.classList.remove('hidden');
           initApp();
@@ -522,8 +676,10 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (error) {
         console.error(error);
         errorMsg.classList.remove('hidden');
+      } finally {
+        setButtonLoading(submitAccess, false);
       }
-    };
+    });
   }
 
   if (accessInput) {
@@ -534,4 +690,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  initializeSession();
 });

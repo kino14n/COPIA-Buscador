@@ -1,0 +1,84 @@
+openapi: 3.0.3
+info:
+  title: Buscador API
+  version: 1.0.0
+servers:
+  - url: https://example.com
+paths:
+  /api.php:
+    get:
+      summary: Acciones de lectura
+      parameters:
+        - name: c
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Código del cliente
+        - name: action
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [session, list, suggest, download_pdfs]
+      responses:
+        '200':
+          description: Respuesta exitosa
+    post:
+      summary: Acciones mutables
+      parameters:
+        - name: c
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [authenticate, login, upload, edit, delete, search, search_by_code]
+                _csrf:
+                  type: string
+                  description: Token CSRF de la sesión
+                name:
+                  type: string
+                date:
+                  type: string
+                  format: date
+                codes:
+                  type: string
+                  description: Lista de códigos separados por saltos de línea
+                id:
+                  type: integer
+                access_key:
+                  type: string
+                deletion_key:
+                  type: string
+                code:
+                  type: string
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [upload, edit]
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Operación exitosa
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: PHPSESSID
+security:
+  - SessionCookie: []

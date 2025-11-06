@@ -3,3 +3,6 @@
 /clientes/*/uploads/
 /clientes/*/data/
 !/uploads/.gitignore
+vendor/
+composer.lock
+/tests/clientes/

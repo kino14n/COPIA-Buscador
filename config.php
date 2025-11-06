@@ -23,15 +23,28 @@ if (!is_dir($uploadsBase) && !mkdir($uploadsBase, 0775, true) && !is_dir($upload
 }
 
 $dbConfig = $runtimeConfig['db'];
-$dsn = sprintf(
-    'mysql:host=%s;dbname=%s;charset=%s',
-    $dbConfig['host'],
-    $dbConfig['name'],
-    $dbConfig['charset']
-);
+$driver = $dbConfig['driver'] ?? 'mysql';
+
+switch ($driver) {
+    case 'sqlite':
+        $dsn = 'sqlite:' . ($dbConfig['path'] ?? $dbConfig['name']);
+        $dbUser = null;
+        $dbPass = null;
+        break;
+    default:
+        $dsn = sprintf(
+            '%s:host=%s;dbname=%s;charset=%s',
+            $driver,
+            $dbConfig['host'],
+            $dbConfig['name'],
+            $dbConfig['charset']
+        );
+        $dbUser = $dbConfig['user'];
+        $dbPass = $dbConfig['pass'];
+}
 
 try {
-    $db = new PDO($dsn, $dbConfig['user'], $dbConfig['pass'], [
+    $db = new PDO($dsn, $dbUser, $dbPass, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
