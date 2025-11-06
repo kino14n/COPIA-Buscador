@@ -31,6 +31,7 @@ return [
         'base_path' => $uploadsPath,
         'max_bytes' => (int) $env('UPLOAD_MAX_BYTES', 10 * 1024 * 1024),
         'allowed_mimes' => array_filter(array_map('trim', explode(',', (string) $env('UPLOAD_ALLOWED_MIMES', 'application/pdf,image/png,image/jpeg')))),
+        'allowed_extensions' => array_filter(array_map('trim', explode(',', (string) $env('UPLOAD_ALLOWED_EXTENSIONS', 'pdf,png,jpg,jpeg')))),
     ],
     'limits' => [
         'search_max_codes' => max(1, (int) $env('SEARCH_MAX_CODES', 25)),
