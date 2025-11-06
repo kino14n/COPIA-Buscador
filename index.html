@@ -88,9 +88,9 @@
 <body class="bg-gray-100 min-h-screen flex items-start justify-center p-6">
 
   <!-- Login Modal -->
-  <div id="loginOverlay" class="overlay">
-    <div class="modal">
-      <h2 class="text-xl font-semibold">Acceso Restringido</h2>
+  <div id="loginOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+    <div class="modal" role="document">
+      <h2 id="loginTitle" class="text-xl font-semibold">Acceso Restringido</h2>
       <p class="mt-2 text-gray-700">Ingrese su número de acceso:</p>
       <input id="accessInput" type="password" placeholder="Número de acceso" />
       <button id="submitAccess" class="btn btn--primary btn--full">Enviar</button>
@@ -99,18 +99,18 @@
   </div>
 
   <!-- Confirm Modal -->
-  <div id="confirmOverlay" class="overlay hidden">
-    <div id="confirmBox" class="modal confirm">
-      <p id="confirmMsg">¿Confirmar acción?</p>
+  <div id="confirmOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirmMsg">
+    <div id="confirmBox" class="modal confirm" role="document">
+      <p id="confirmMsg" tabindex="-1">¿Confirmar acción?</p>
       <button id="confirmOk" class="btn btn--primary">Aceptar</button>
       <button id="confirmCancel" class="btn btn--secondary">Cancelar</button>
     </div>
   </div>
 
   <!-- Delete Key Modal -->
-  <div id="deleteOverlay" class="overlay hidden">
-    <div class="modal deleteKey">
-      <h2 class="text-xl font-semibold">Clave de Eliminación</h2>
+  <div id="deleteOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="deleteKeyTitle">
+    <div class="modal deleteKey" role="document">
+      <h2 id="deleteKeyTitle" class="text-xl font-semibold">Clave de Eliminación</h2>
       <p class="mt-2 text-gray-700">Ingrese la clave para eliminar:</p>
       <input id="deleteKeyInput" type="password" placeholder="Clave de borrado" class="mt-2 w-full border rounded px-3 py-2" />
       <p id="deleteKeyError" class="mt-2 text-red-500 hidden">Clave incorrecta.</p>
@@ -121,6 +121,12 @@
 
   <!-- Toast container -->
   <div id="toast-container"></div>
+
+  <div id="globalSpinner" class="overlay hidden" role="status" aria-live="polite">
+    <div class="modal" aria-busy="true">
+      <p class="text-lg">Procesando...</p>
+    </div>
+  </div>
 
   <!-- Main Content -->
   <div id="mainContent" class="w-full max-w-4xl bg-white rounded-2xl shadow-lg hidden">
@@ -154,6 +160,7 @@
         <h2 class="text-xl font-semibold mb-4">Subir / Editar Documento</h2>
         <form id="form-upload" enctype="multipart/form-data" class="space-y-4">
           <input id="docId" type="hidden" name="id" />
+          <input id="csrfUpload" type="hidden" name="_csrf" />
           <div>
             <label class="block mb-1 text-lg">Nombre</label>
             <input id="name" name="name" type="text" required class="w-full border rounded px-3 py-2 text-lg"/>
@@ -185,6 +192,7 @@
           <button onclick="clearConsultFilter()" class="btn btn--secondary text-lg">Limpiar</button>
           <button onclick="downloadCsv()" class="btn btn--primary text-lg">Descargar CSV</button>
           <button onclick="downloadPdfs()" class="btn btn--dark text-lg">Descargar PDFs</button>
+          <button id="refreshButton" class="btn btn--secondary text-lg" type="button">Actualizar</button>
         </div>
         <div id="results-list" class="space-y-4"></div>
       </div>

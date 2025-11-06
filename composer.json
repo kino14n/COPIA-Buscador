@@ -1,0 +1,25 @@
+{
+  "name": "copia/buscador",
+  "description": "Buscador de documentos",
+  "type": "project",
+  "require": {
+    "php": "^7.4 || ^8.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9.6"
+  },
+  "autoload": {
+    "files": [
+      "helpers/logger.php",
+      "helpers/log.php",
+      "helpers/csrf.php",
+      "helpers/tenant.php",
+      "helpers/storage.php"
+    ]
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Tests\\": "tests/"
+    }
+  }
+}
