@@ -9,6 +9,7 @@ require __DIR__ . '/config.php';
 require __DIR__ . '/helpers/tenant.php';
 require __DIR__ . '/helpers/log.php';
 require __DIR__ . '/helpers/auth.php';
+require __DIR__ . '/helpers/csrf.php';
 
 require_admin_auth($config);
 
@@ -18,9 +19,25 @@ $err = $ok = null;
 $codigoInput = $_POST['codigo'] ?? '';
 $nombreInput = $_POST['nombre'] ?? '';
 $codigoCreado = '';
+$csrfToken = csrf_get_token();
+
+function generator_hash_secret(string $secret): string
+{
+    if (preg_match('/^\$2[aby]\$/', $secret) === 1) {
+        return $secret;
+    }
+    return password_hash($secret, PASSWORD_DEFAULT);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
+        if (!csrf_validate_token($_POST['_csrf'] ?? null)) {
+            throw new RuntimeException('Token CSRF inválido.');
+        }
+
+        csrf_regenerate_token();
+        $csrfToken = csrf_get_token();
+
         $codigo = sanitize_code($codigoInput);
         $codigoInput = $codigo;
         $nombre = trim($nombreInput);
@@ -97,8 +114,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'contact_email' => $_POST['contact_email'] ?? null,
             ],
             'admin' => [
-                'access_key' => $accessKey,
-                'deletion_key' => $deletionKey,
+                'access_key' => generator_hash_secret($accessKey),
+                'deletion_key' => generator_hash_secret($deletionKey),
             ],
             'db' => [],
         ];
@@ -137,6 +154,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (Throwable $e) {
         audit_log('Error al crear cliente: ' . $e->getMessage());
         $err = '❌ ' . $e->getMessage();
+        csrf_regenerate_token();
+        $csrfToken = csrf_get_token();
     }
 }
 ?>
@@ -271,6 +290,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <div class="container">
         <form method="post">
+            <input type="hidden" name="_csrf" value="<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>">
             <h2>🏢 Crear nuevo cliente</h2>
 
             <?php if ($ok): ?>

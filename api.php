@@ -81,18 +81,36 @@ function validate_uploaded_file(array $file, array $config): void
         throw new RuntimeException('Archivo no recibido');
     }
 
+    $tmpPath = $file['tmp_name'];
+    if (!is_uploaded_file($tmpPath)) {
+        throw new RuntimeException('Carga de archivo inválida');
+    }
+
+    $size = isset($file['size']) ? (int) $file['size'] : filesize($tmpPath);
+    if ($size === false) {
+        throw new RuntimeException('No se pudo determinar el tamaño del archivo');
+    }
+
     $maxBytes = $config['uploads']['max_bytes'] ?? 0;
-    if ($maxBytes > 0 && ($file['size'] ?? 0) > $maxBytes) {
+    if ($maxBytes > 0 && $size > $maxBytes) {
         throw new RuntimeException('El archivo supera el tamaño máximo permitido');
     }
 
+    $allowedExtensions = $config['uploads']['allowed_extensions'] ?? [];
+    if ($allowedExtensions) {
+        $extension = strtolower(pathinfo($file['name'] ?? '', PATHINFO_EXTENSION));
+        if ($extension === '' || !in_array($extension, $allowedExtensions, true)) {
+            throw new RuntimeException('Extensión de archivo no permitida');
+        }
+    }
+
     $finfo = finfo_open(FILEINFO_MIME_TYPE);
-    $mime = $finfo ? finfo_file($finfo, $file['tmp_name']) : null;
+    $mime = $finfo ? finfo_file($finfo, $tmpPath) : null;
     if ($finfo) {
         finfo_close($finfo);
     }
     if (!$mime && function_exists('mime_content_type')) {
-        $mime = mime_content_type($file['tmp_name']);
+        $mime = mime_content_type($tmpPath);
     }
 
     $allowed = $config['uploads']['allowed_mimes'] ?? [];
