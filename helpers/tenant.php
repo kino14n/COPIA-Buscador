@@ -57,4 +57,52 @@ function copy_dir(string $src, string $dst): bool
     closedir($dir);
     return true;
 }
-?>
+
+function client_config_path(string $code): string
+{
+    return __DIR__ . '/../clientes/' . $code . '/config.php';
+}
+
+function load_client_config(string $code): array
+{
+    $path = client_config_path($code);
+    if (is_file($path)) {
+        $config = require $path;
+        if (is_array($config)) {
+            return $config;
+        }
+    }
+
+    $template = __DIR__ . '/../clientes/template.config.php';
+    if (is_file($template)) {
+        $config = require $template;
+        if (is_array($config)) {
+            return $config;
+        }
+    }
+
+    return [
+        'branding' => [],
+        'admin' => [],
+        'db' => [],
+    ];
+}
+
+function verify_secret(string $provided, string $expected): bool
+{
+    if ($expected === '') {
+        return false;
+    }
+
+    if (preg_match('/^\$2[aby]\$/', $expected) === 1) {
+        return password_verify($provided, $expected);
+    }
+
+    return hash_equals($expected, $provided);
+}
+
+function uploads_base_path(array $config, string $code): string
+{
+    $base = rtrim($config['uploads']['base_path'] ?? (__DIR__ . '/../storage/uploads'), '/');
+    return $base . '/' . $code;
+}
